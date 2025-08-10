@@ -14,8 +14,17 @@ using System.Threading.Tasks;
 
 namespace KuyumStokApi.Infrastructure.Services.JwtService
 {
+
     public sealed class JwtService : IJwtService
     {
+        private static byte[] DecodeKey(string? b64)
+        {
+            if (string.IsNullOrWhiteSpace(b64))
+                throw new InvalidOperationException("Jwt:Key boş!");
+            var clean = b64.Trim();
+            return Convert.FromBase64String(clean);
+        }
+
         private readonly JwtOptions _opt;
         private readonly SigningCredentials _creds;
         private readonly JwtHeader _headerTemplate;
@@ -24,8 +33,7 @@ namespace KuyumStokApi.Infrastructure.Services.JwtService
         {
             _opt = options.Value ?? throw new ArgumentNullException(nameof(options));
 
-            // HS256 — en az 32 byte secret
-            var keyBytes = Encoding.UTF8.GetBytes(_opt.Key);
+            var keyBytes = DecodeKey(_opt.Key);
             var securityKey = new SymmetricSecurityKey(keyBytes);
             _creds = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 

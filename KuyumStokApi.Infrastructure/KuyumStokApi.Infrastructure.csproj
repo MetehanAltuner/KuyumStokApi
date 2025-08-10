@@ -25,5 +25,9 @@
     <ProjectReference Include="..\KuyumStokApi.Application\KuyumStokApi.Application.csproj" />
     <ProjectReference Include="..\KuyumStokApi.Persistence\KuyumStokApi.Persistence.csproj" />
   </ItemGroup>
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
 
 </Project>

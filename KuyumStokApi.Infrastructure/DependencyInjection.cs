@@ -1,7 +1,9 @@
 ﻿using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Infrastructure.Auth;
 using KuyumStokApi.Infrastructure.Services.JwtService;
+using KuyumStokApi.Infrastructure.Services.ProductCategoryService;
 using KuyumStokApi.Infrastructure.Services.UserService;
+using KuyumStokApi.Infrastructure.Services.BanksService;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System;
@@ -31,6 +33,8 @@ namespace KuyumStokApi.Infrastructure
             services.AddSingleton<IJwtService, JwtService>();
             services.AddSingleton<IPasswordHasher, PasswordHasher.PasswordHasher>();
             services.AddScoped<IUserService, UserService>();
+            services.AddScoped<IProductCategoryService, ProductCategoryService>();
+            services.AddScoped<IBanksService, BanksService>();
 
 
             return services;
