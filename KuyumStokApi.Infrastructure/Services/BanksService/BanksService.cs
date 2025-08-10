@@ -21,7 +21,10 @@ namespace KuyumStokApi.Infrastructure.Services.BanksService
             var page = Math.Max(1, filter.Page);
             var pageSize = Math.Clamp(filter.PageSize, 1, 200);
 
-            var q = _db.Banks.AsNoTracking().AsQueryable();
+            IQueryable<Domain.Entities.Banks> q = _db.Banks.AsNoTracking();
+
+            if (filter.IncludeDeleted)
+                q = q.IgnoreQueryFilters(); // silinmişleri de gör
 
             if (!string.IsNullOrWhiteSpace(filter.Query))
             {
@@ -30,16 +33,20 @@ namespace KuyumStokApi.Infrastructure.Services.BanksService
                               || EF.Functions.ILike(b.Description ?? "", $"%{qstr}%"));
             }
 
-            if (filter.UpdatedFromUtc.HasValue)
+            if (filter.IsActive is not null)
+                q = q.Where(b => b.IsActive == filter.IsActive);
+
+            if (filter.UpdatedFromUtc is not null)
                 q = q.Where(b => b.UpdatedAt == null || b.UpdatedAt >= filter.UpdatedFromUtc);
 
-            if (filter.UpdatedToUtc.HasValue)
+            if (filter.UpdatedToUtc is not null)
                 q = q.Where(b => b.UpdatedAt == null || b.UpdatedAt <= filter.UpdatedToUtc);
 
             var total = await q.LongCountAsync(ct);
 
             var items = await q
                 .OrderByDescending(b => b.UpdatedAt ?? DateTime.MinValue)
+                .ThenBy(b => b.Id)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .Select(b => new BankDto
@@ -47,24 +54,21 @@ namespace KuyumStokApi.Infrastructure.Services.BanksService
                     Id = b.Id,
                     Name = b.Name,
                     Description = b.Description,
-                    UpdatedAt = b.UpdatedAt
+                    UpdatedAt = b.UpdatedAt,
+                    IsActive = b.IsActive,
+                    IsDeleted = b.IsDeleted
                 })
                 .ToListAsync(ct);
 
-            var paged = new PagedResult<BankDto>
-            {
-                Items = items,
-                Page = page,
-                PageSize = pageSize,
-                TotalCount = total
-            };
-
-            return ApiResult<PagedResult<BankDto>>.Ok(paged, "Liste getirildi", 200);
+            return ApiResult<PagedResult<BankDto>>.Ok(
+                new PagedResult<BankDto> { Items = items, Page = page, PageSize = pageSize, TotalCount = total },
+                "Liste getirildi", 200);
         }
 
         public async Task<ApiResult<BankDto>> GetByIdAsync(int id, CancellationToken ct = default)
         {
-            var b = await _db.Banks.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+            var b = await _db.Banks.AsNoTracking().IgnoreQueryFilters() // silinmiş de olabilir
+                                   .FirstOrDefaultAsync(x => x.Id == id, ct);
             if (b is null) return ApiResult<BankDto>.Fail("Banka bulunamadı", statusCode: 404);
 
             var dto = new BankDto
@@ -72,7 +76,9 @@ namespace KuyumStokApi.Infrastructure.Services.BanksService
                 Id = b.Id,
                 Name = b.Name,
                 Description = b.Description,
-                UpdatedAt = b.UpdatedAt
+                UpdatedAt = b.UpdatedAt,
+                IsActive = b.IsActive,
+                IsDeleted = b.IsDeleted
             };
             return ApiResult<BankDto>.Ok(dto, "Bulundu", 200);
         }
@@ -80,11 +86,12 @@ namespace KuyumStokApi.Infrastructure.Services.BanksService
         public async Task<ApiResult<BankDto>> CreateAsync(BankCreateDto dto, CancellationToken ct = default)
         {
             var now = DateTime.UtcNow;
-            var entity = new KuyumStokApi.Domain.Entities.Banks
+            var entity = new Domain.Entities.Banks
             {
-                Name = dto.Name,
+                Name = dto.Name.Trim(),
                 Description = dto.Description,
-                UpdatedAt = now
+                UpdatedAt = now,
+                IsActive = true
             };
 
             _db.Banks.Add(entity);
@@ -95,7 +102,9 @@ namespace KuyumStokApi.Infrastructure.Services.BanksService
                 Id = entity.Id,
                 Name = entity.Name,
                 Description = entity.Description,
-                UpdatedAt = entity.UpdatedAt
+                UpdatedAt = entity.UpdatedAt,
+                IsActive = entity.IsActive,
+                IsDeleted = entity.IsDeleted
             };
             return ApiResult<BankDto>.Ok(result, "Oluşturuldu", 201);
         }
@@ -105,7 +114,7 @@ namespace KuyumStokApi.Infrastructure.Services.BanksService
             var entity = await _db.Banks.FirstOrDefaultAsync(x => x.Id == id, ct);
             if (entity is null) return ApiResult<bool>.Fail("Banka bulunamadı", statusCode: 404);
 
-            entity.Name = dto.Name;
+            entity.Name = dto.Name.Trim();
             entity.Description = dto.Description;
             entity.UpdatedAt = DateTime.UtcNow;
 
@@ -113,6 +122,7 @@ namespace KuyumStokApi.Infrastructure.Services.BanksService
             return ApiResult<bool>.Ok(true, "Güncellendi", 200);
         }
 
+        // Soft delete (DbContext hook'u devreye girer)
         public async Task<ApiResult<bool>> DeleteAsync(int id, CancellationToken ct = default)
         {
             var entity = await _db.Banks.FirstOrDefaultAsync(x => x.Id == id, ct);
@@ -120,7 +130,29 @@ namespace KuyumStokApi.Infrastructure.Services.BanksService
 
             _db.Banks.Remove(entity);
             await _db.SaveChangesAsync(ct);
-            return ApiResult<bool>.Ok(true, "Silindi", 200);
+            return ApiResult<bool>.Ok(true, "Silindi (soft)", 200);
+        }
+
+        // Kalıcı silme (admin için)
+        public async Task<ApiResult<bool>> HardDeleteAsync(int id, CancellationToken ct = default)
+        {
+            var affected = await _db.Banks.IgnoreQueryFilters()
+                                          .Where(x => x.Id == id)
+                                          .ExecuteDeleteAsync(ct);
+            return affected == 1
+                ? ApiResult<bool>.Ok(true, "Kalıcı silindi", 200)
+                : ApiResult<bool>.Fail("Banka bulunamadı", statusCode: 404);
+        }
+
+        public async Task<ApiResult<bool>> SetActiveAsync(int id, bool isActive, CancellationToken ct = default)
+        {
+            var entity = await _db.Banks.IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Id == id, ct);
+            if (entity is null) return ApiResult<bool>.Fail("Banka bulunamadı", statusCode: 404);
+
+            entity.IsActive = isActive;
+            entity.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+            return ApiResult<bool>.Ok(true, isActive ? "Aktif edildi" : "Pasif edildi", 200);
         }
     }
 }

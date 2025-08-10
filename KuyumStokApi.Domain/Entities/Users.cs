@@ -19,13 +19,19 @@ public partial class Users
 
     public int? BranchId { get; set; }
 
-    public string PasswordSalt { get; set; } = default!;
-
-    public bool IsActive { get; set; } = true;
-
     public DateTime? CreatedAt { get; set; }
 
     public DateTime? UpdatedAt { get; set; }
+
+    public string PasswordSalt { get; set; } = null!;
+
+    public bool? IsActive { get; set; }
+
+    public bool IsDeleted { get; set; }
+
+    public DateTime? DeletedAt { get; set; }
+
+    public int? DeletedBy { get; set; }
 
     public virtual Branches? Branch { get; set; }
 

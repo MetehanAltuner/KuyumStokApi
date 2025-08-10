@@ -17,6 +17,14 @@ public partial class Branches
 
     public DateTime? UpdatedAt { get; set; }
 
+    public bool IsDeleted { get; set; }
+
+    public DateTime? DeletedAt { get; set; }
+
+    public int? DeletedBy { get; set; }
+
+    public bool IsActive { get; set; }
+
     public virtual ICollection<Limits> Limits { get; set; } = new List<Limits>();
 
     public virtual ICollection<Purchases> Purchases { get; set; } = new List<Purchases>();

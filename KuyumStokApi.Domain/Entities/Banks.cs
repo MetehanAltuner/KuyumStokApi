@@ -13,5 +13,13 @@ public partial class Banks
 
     public DateTime? UpdatedAt { get; set; }
 
+    public bool IsDeleted { get; set; }
+
+    public DateTime? DeletedAt { get; set; }
+
+    public int? DeletedBy { get; set; }
+
+    public bool IsActive { get; set; }
+
     public virtual ICollection<BankTransactions> BankTransactions { get; set; } = new List<BankTransactions>();
 }

@@ -1,17 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
-using Microsoft.EntityFrameworkCore;
 using KuyumStokApi.Domain.Entities;
-using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Microsoft.EntityFrameworkCore;
 
 namespace KuyumStokApi.Persistence.Contexts;
 
 public partial class AppDbContext : DbContext
 {
-    public AppDbContext()
-    {
-    }
-
     public AppDbContext(DbContextOptions<AppDbContext> options)
         : base(options)
     {
@@ -68,14 +63,12 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.CommissionRate).HasColumnName("commission_rate");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("created_at");
             entity.Property(e => e.ExpectedAmount).HasColumnName("expected_amount");
             entity.Property(e => e.SaleId).HasColumnName("sale_id");
             entity.Property(e => e.Status).HasColumnName("status");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
 
             entity.HasOne(d => d.Bank).WithMany(p => p.BankTransactions)
@@ -94,11 +87,18 @@ public partial class AppDbContext : DbContext
             entity.ToTable("banks");
 
             entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+            entity.Property(e => e.DeletedBy).HasColumnName("deleted_by");
             entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+            entity.Property(e => e.IsDeleted)
+                .HasDefaultValue(false)
+                .HasColumnName("is_deleted");
             entity.Property(e => e.Name).HasColumnName("name");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
         });
 
@@ -112,13 +112,19 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Address).HasColumnName("address");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("created_at");
+            entity.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+            entity.Property(e => e.DeletedBy).HasColumnName("deleted_by");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+            entity.Property(e => e.IsDeleted)
+                .HasDefaultValue(false)
+                .HasColumnName("is_deleted");
             entity.Property(e => e.Name).HasColumnName("name");
             entity.Property(e => e.StoreId).HasColumnName("store_id");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
 
             entity.HasOne(d => d.Store).WithMany(p => p.Branches)
@@ -135,14 +141,20 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("created_at");
+            entity.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+            entity.Property(e => e.DeletedBy).HasColumnName("deleted_by");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+            entity.Property(e => e.IsDeleted)
+                .HasDefaultValue(false)
+                .HasColumnName("is_deleted");
             entity.Property(e => e.Name).HasColumnName("name");
             entity.Property(e => e.Note).HasColumnName("note");
             entity.Property(e => e.Phone).HasColumnName("phone");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
         });
 
@@ -167,14 +179,12 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.BranchId).HasColumnName("branch_id");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("created_at");
             entity.Property(e => e.MaxThreshold).HasColumnName("max_threshold");
             entity.Property(e => e.MinThreshold).HasColumnName("min_threshold");
             entity.Property(e => e.ProductVariantId).HasColumnName("product_variant_id");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.Limits)
@@ -193,6 +203,14 @@ public partial class AppDbContext : DbContext
             entity.ToTable("payment_methods");
 
             entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+            entity.Property(e => e.DeletedBy).HasColumnName("deleted_by");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+            entity.Property(e => e.IsDeleted)
+                .HasDefaultValue(false)
+                .HasColumnName("is_deleted");
             entity.Property(e => e.Name).HasColumnName("name");
         });
 
@@ -205,12 +223,18 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("created_at");
+            entity.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+            entity.Property(e => e.DeletedBy).HasColumnName("deleted_by");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+            entity.Property(e => e.IsDeleted)
+                .HasDefaultValue(false)
+                .HasColumnName("is_deleted");
             entity.Property(e => e.Name).HasColumnName("name");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
         });
 
@@ -226,11 +250,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.StockId).HasColumnName("stock_id");
             entity.Property(e => e.Timestamp)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("timestamp");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
             entity.Property(e => e.UserId).HasColumnName("user_id");
 
@@ -257,12 +279,18 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.CategoryId).HasColumnName("category_id");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("created_at");
+            entity.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+            entity.Property(e => e.DeletedBy).HasColumnName("deleted_by");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+            entity.Property(e => e.IsDeleted)
+                .HasDefaultValue(false)
+                .HasColumnName("is_deleted");
             entity.Property(e => e.Name).HasColumnName("name");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
 
             entity.HasOne(d => d.Category).WithMany(p => p.ProductTypes)
@@ -282,16 +310,22 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Carat).HasColumnName("carat");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("created_at");
+            entity.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+            entity.Property(e => e.DeletedBy).HasColumnName("deleted_by");
             entity.Property(e => e.Gram).HasColumnName("gram");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+            entity.Property(e => e.IsDeleted)
+                .HasDefaultValue(false)
+                .HasColumnName("is_deleted");
             entity.Property(e => e.Milyem).HasColumnName("milyem");
             entity.Property(e => e.ProductTypeId).HasColumnName("product_type_id");
             entity.Property(e => e.StoneType).HasColumnName("stone_type");
             entity.Property(e => e.Thickness).HasColumnName("thickness");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
             entity.Property(e => e.Width).HasColumnName("width");
 
@@ -313,7 +347,6 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.StockId).HasColumnName("stock_id");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
 
             entity.HasOne(d => d.Purchase).WithMany(p => p.PurchaseDetails)
@@ -335,13 +368,11 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.BranchId).HasColumnName("branch_id");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("created_at");
             entity.Property(e => e.CustomerId).HasColumnName("customer_id");
             entity.Property(e => e.PaymentMethodId).HasColumnName("payment_method_id");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
             entity.Property(e => e.UserId).HasColumnName("user_id");
 
@@ -371,12 +402,18 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("created_at");
+            entity.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+            entity.Property(e => e.DeletedBy).HasColumnName("deleted_by");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+            entity.Property(e => e.IsDeleted)
+                .HasDefaultValue(false)
+                .HasColumnName("is_deleted");
             entity.Property(e => e.Name).HasColumnName("name");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
         });
 
@@ -393,7 +430,6 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.StockId).HasColumnName("stock_id");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
 
             entity.HasOne(d => d.Sale).WithMany(p => p.SaleDetails)
@@ -415,13 +451,11 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.BranchId).HasColumnName("branch_id");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("created_at");
             entity.Property(e => e.CustomerId).HasColumnName("customer_id");
             entity.Property(e => e.PaymentMethodId).HasColumnName("payment_method_id");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
             entity.Property(e => e.UserId).HasColumnName("user_id");
 
@@ -455,14 +489,12 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.BranchId).HasColumnName("branch_id");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("created_at");
             entity.Property(e => e.ProductVariantId).HasColumnName("product_variant_id");
             entity.Property(e => e.QrCode).HasColumnName("qr_code");
             entity.Property(e => e.Quantity).HasColumnName("quantity");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.Stocks)
@@ -483,12 +515,18 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("created_at");
+            entity.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+            entity.Property(e => e.DeletedBy).HasColumnName("deleted_by");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+            entity.Property(e => e.IsDeleted)
+                .HasDefaultValue(false)
+                .HasColumnName("is_deleted");
             entity.Property(e => e.Name).HasColumnName("name");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
         });
 
@@ -504,23 +542,24 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.BranchId).HasColumnName("branch_id");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("created_at");
+            entity.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+            entity.Property(e => e.DeletedBy).HasColumnName("deleted_by");
             entity.Property(e => e.FirstName).HasColumnName("first_name");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+            entity.Property(e => e.IsDeleted)
+                .HasDefaultValue(false)
+                .HasColumnName("is_deleted");
             entity.Property(e => e.LastName).HasColumnName("last_name");
             entity.Property(e => e.PasswordHash).HasColumnName("password_hash");
             entity.Property(e => e.PasswordSalt)
-                .HasColumnName("password_salt")
-                .IsRequired();
-
-            entity.Property(e => e.IsActive)
-                .HasColumnName("is_active")
-                .HasDefaultValue(true)
-                .IsRequired();
+                .HasDefaultValueSql("''::text")
+                .HasColumnName("password_salt");
             entity.Property(e => e.RoleId).HasColumnName("role_id");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp with time zone")
                 .HasColumnName("updated_at");
             entity.Property(e => e.Username).HasColumnName("username");
 
@@ -532,7 +571,6 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.RoleId)
                 .HasConstraintName("users_role_id_fkey");
         });
-
 
         OnModelCreatingPartial(modelBuilder);
     }

@@ -18,7 +18,6 @@ namespace KuyumStokApi.Persistence
             {
                 opt.UseNpgsql(cfg.GetConnectionString("DefaultConnection"));
             });
-
             return services;
         }
     }

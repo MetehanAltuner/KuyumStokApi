@@ -66,7 +66,7 @@ namespace KuyumStokApi.Infrastructure.Services.UserService
                 .FirstOrDefaultAsync(u => u.Username == dto.Username);
 
             if (user is null) return null;
-            if (!user.IsActive) return null;
+            if (!user.IsActive ?? false) return null;
 
             var ok = _hasher.Verify(dto.Password, user.PasswordSalt, user.PasswordHash);
             if (!ok) return null;

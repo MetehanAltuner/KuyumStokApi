@@ -17,6 +17,14 @@ public partial class Customers
 
     public DateTime? UpdatedAt { get; set; }
 
+    public bool IsDeleted { get; set; }
+
+    public DateTime? DeletedAt { get; set; }
+
+    public int? DeletedBy { get; set; }
+
+    public bool IsActive { get; set; }
+
     public virtual ICollection<Purchases> Purchases { get; set; } = new List<Purchases>();
 
     public virtual ICollection<Sales> Sales { get; set; } = new List<Sales>();

@@ -15,5 +15,7 @@ namespace KuyumStokApi.Application.Interfaces.Services
         Task<ApiResult<BankDto>> CreateAsync(BankCreateDto dto, CancellationToken ct = default);
         Task<ApiResult<bool>> UpdateAsync(int id, BankUpdateDto dto, CancellationToken ct = default);
         Task<ApiResult<bool>> DeleteAsync(int id, CancellationToken ct = default);
+        Task<ApiResult<bool>> HardDeleteAsync(int id, CancellationToken ct = default);
+        Task<ApiResult<bool>> SetActiveAsync(int id, bool isActive, CancellationToken ct = default);
     }
 }

@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using KuyumStokApi.Application.Common;
 
 namespace KuyumStokApi.Infrastructure
 {
@@ -35,6 +36,8 @@ namespace KuyumStokApi.Infrastructure
             services.AddScoped<IUserService, UserService>();
             services.AddScoped<IProductCategoryService, ProductCategoryService>();
             services.AddScoped<IBanksService, BanksService>();
+            services.AddHttpContextAccessor();
+            services.AddScoped<ICurrentUserService, CurrentUserService>();
 
 
             return services;

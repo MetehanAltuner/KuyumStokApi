@@ -59,5 +59,23 @@ namespace KuyumStokApi.API.Controllers
             var r = await _svc.DeleteAsync(id, ct);
             return StatusCode(r.StatusCode, r);
         }
+
+        /// <summary>Bankayı aktif/pasif yapar.</summary>
+        [HttpPut("{id:int}/active")]
+        [Authorize]
+        public async Task<IActionResult> SetActive(int id, [FromQuery] bool value = true, CancellationToken ct = default)
+        {
+            var r = await _svc.SetActiveAsync(id, value, ct);
+            return StatusCode(r.StatusCode, r);
+        }
+
+        /// <summary>Bankayı kalıcı olarak siler (hard delete).</summary>
+        [HttpDelete("{id:int}/hard")]
+        [Authorize] // istersen Roles="Admin"
+        public async Task<IActionResult> HardDelete(int id, CancellationToken ct)
+        {
+            var r = await _svc.HardDeleteAsync(id, ct);
+            return StatusCode(r.StatusCode, r);
+        }
     }
 }

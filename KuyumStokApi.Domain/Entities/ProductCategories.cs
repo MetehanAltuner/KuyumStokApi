@@ -13,5 +13,13 @@ public partial class ProductCategories
 
     public DateTime? CreatedAt { get; set; }
 
+    public bool IsDeleted { get; set; }
+
+    public DateTime? DeletedAt { get; set; }
+
+    public int? DeletedBy { get; set; }
+
+    public bool IsActive { get; set; }
+
     public virtual ICollection<ProductTypes> ProductTypes { get; set; } = new List<ProductTypes>();
 }

@@ -31,21 +31,18 @@ namespace KuyumStokApi.Application.DTOs.Banks
         public string? Name { get; set; }
         public string? Description { get; set; }
         public DateTime? UpdatedAt { get; set; }
+        public bool IsActive { get; set; }
+        public bool IsDeleted { get; set; }
     }
 
     /// <summary>Listeleme için filtre + sayfalama parametreleri.</summary>
-    public sealed class BankFilter
-    {
-        /// <summary>Ad veya açıklama içinde geçen metin (case-insensitive).</summary>
-        public string? Query { get; set; }
-        /// <summary>Güncellenme başlangıç tarihi (UTC).</summary>
-        public DateTime? UpdatedFromUtc { get; set; }
-        /// <summary>Güncellenme bitiş tarihi (UTC).</summary>
-        public DateTime? UpdatedToUtc { get; set; }
-
-        /// <summary>Sayfa numarası (1..n).</summary>
-        public int Page { get; set; } = 1;
-        /// <summary>Sayfa boyutu (1..200).</summary>
-        public int PageSize { get; set; } = 20;
-    }
+    public sealed record BankFilter(
+        int Page = 1,
+        int PageSize = 20,
+        string? Query = null,
+        bool? IsActive = null,
+        bool IncludeDeleted = false,
+        DateTime? UpdatedFromUtc = null,
+        DateTime? UpdatedToUtc = null
+    );
 }
