@@ -1,27 +1,28 @@
-﻿using KuyumStokApi.Application.DTOs.ProductCategories;
+﻿using KuyumStokApi.Application.DTOs.ProductVariant.KuyumStokApi.Application.DTOs.ProductVariants;
 using KuyumStokApi.Application.Interfaces.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace KuyumStokApi.API.Controllers
 {
+    /// <summary>Ürün varyantı işlemleri API uçları.</summary>
     [ApiController]
     [Route("api/[controller]")]
-    public sealed class ProductCategoriesController : ControllerBase
+    public sealed class ProductVariantsController : ControllerBase
     {
-        private readonly IProductCategoryService _svc;
-        public ProductCategoriesController(IProductCategoryService svc) => _svc = svc;
+        private readonly IProductVariantService _svc;
+        public ProductVariantsController(IProductVariantService svc) => _svc = svc;
 
-        /// <summary>Kategorileri filtreleyerek sayfalı listeler.</summary>
+        /// <summary>Varyantları filtreleyerek sayfalı listeler (bağlı ürün türü bilgisiyle).</summary>
         [HttpGet]
         [Authorize]
-        public async Task<IActionResult> GetPaged([FromQuery] ProductCategoryFilter filter, CancellationToken ct)
+        public async Task<IActionResult> GetPaged([FromQuery] ProductVariantFilter filter, CancellationToken ct)
         {
             var r = await _svc.GetPagedAsync(filter, ct);
             return StatusCode(r.StatusCode, r);
         }
 
-        /// <summary>Id’ye göre kategori detayını getirir.</summary>
+        /// <summary>Id’ye göre varyant detayını getirir (bağlı ürün türü bilgisiyle).</summary>
         [HttpGet("{id:int}")]
         [Authorize]
         public async Task<IActionResult> GetById(int id, CancellationToken ct)
@@ -30,25 +31,25 @@ namespace KuyumStokApi.API.Controllers
             return StatusCode(r.StatusCode, r);
         }
 
-        /// <summary>Yeni bir kategori oluşturur.</summary>
+        /// <summary>Yeni bir varyant oluşturur.</summary>
         [HttpPost]
         [Authorize]
-        public async Task<IActionResult> Create([FromBody] ProductCategoryCreateDto dto, CancellationToken ct)
+        public async Task<IActionResult> Create([FromBody] ProductVariantCreateDto dto, CancellationToken ct)
         {
             var r = await _svc.CreateAsync(dto, ct);
             return StatusCode(r.StatusCode, r);
         }
 
-        /// <summary>Kategoriyi günceller.</summary>
+        /// <summary>Varyantı günceller.</summary>
         [HttpPut("{id:int}")]
         [Authorize]
-        public async Task<IActionResult> Update(int id, [FromBody] ProductCategoryUpdateDto dto, CancellationToken ct)
+        public async Task<IActionResult> Update(int id, [FromBody] ProductVariantUpdateDto dto, CancellationToken ct)
         {
             var r = await _svc.UpdateAsync(id, dto, ct);
             return StatusCode(r.StatusCode, r);
         }
 
-        /// <summary>Kategoriyi soft delete yapar.</summary>
+        /// <summary>Varyantı soft delete yapar.</summary>
         [HttpDelete("{id:int}")]
         [Authorize]
         public async Task<IActionResult> Delete(int id, CancellationToken ct)
@@ -57,7 +58,7 @@ namespace KuyumStokApi.API.Controllers
             return StatusCode(r.StatusCode, r);
         }
 
-        /// <summary>Kategoriyi kalıcı olarak siler (hard delete).</summary>
+        /// <summary>Varyantı kalıcı olarak siler (hard delete).</summary>
         [HttpDelete("{id:int}/hard")]
         [Authorize]
         public async Task<IActionResult> HardDelete(int id, CancellationToken ct)
@@ -66,7 +67,7 @@ namespace KuyumStokApi.API.Controllers
             return StatusCode(r.StatusCode, r);
         }
 
-        /// <summary>Kategoriyi aktif/pasif yapar.</summary>
+        /// <summary>Varyantı aktif/pasif yapar.</summary>
         [HttpPut("{id:int}/active")]
         [Authorize]
         public async Task<IActionResult> SetActive(int id, [FromQuery] bool value = true, CancellationToken ct = default)

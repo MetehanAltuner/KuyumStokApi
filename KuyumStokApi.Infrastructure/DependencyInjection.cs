@@ -12,6 +12,15 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using KuyumStokApi.Application.Common;
+using KuyumStokApi.Infrastructure.Services.ProductTypService;
+using KuyumStokApi.Infrastructure.Services.ProductVariantService;
+using KuyumStokApi.Infrastructure.Services.StocksService;
+using KuyumStokApi.Infrastructure.Services.BranchesService;
+using KuyumStokApi.Infrastructure.Services.Stores;
+using KuyumStokApi.Infrastructure.Services.CustomersService;
+using KuyumStokApi.Infrastructure.Services.PaymentMethodsService;
+using KuyumStokApi.Infrastructure.Services.PurchaseService;
+using KuyumStokApi.Infrastructure.Services.SalesService;
 
 namespace KuyumStokApi.Infrastructure
 {
@@ -38,7 +47,15 @@ namespace KuyumStokApi.Infrastructure
             services.AddScoped<IBanksService, BanksService>();
             services.AddHttpContextAccessor();
             services.AddScoped<ICurrentUserService, CurrentUserService>();
-
+            services.AddScoped<IProductTypeService, ProductTypeService>();
+            services.AddScoped<IProductVariantService, ProductVariantService>();
+            services.AddScoped<IStocksService, StocksService>();
+            services.AddScoped<IBranchesService, BranchesService>();
+            services.AddScoped<IStoresService, StoresService>();
+            services.AddScoped<ICustomersService, CustomersService>();
+            services.AddScoped<IPaymentMethodsService, PaymentMethodsService>();
+            services.AddScoped<IPurchasesService, PurchasesService>();
+            services.AddScoped<ISalesService, SalesService>();
 
             return services;
         }

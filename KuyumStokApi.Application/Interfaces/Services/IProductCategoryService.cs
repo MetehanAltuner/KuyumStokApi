@@ -10,10 +10,14 @@ namespace KuyumStokApi.Application.Interfaces.Services
 {
     public interface IProductCategoryService
     {
-        Task<ApiResult<List<ProductCategoryDto>>> GetAllAsync();
-        Task<ApiResult<ProductCategoryDto>> GetByIdAsync(int id);
-        Task<ApiResult<ProductCategoryDto>> CreateAsync(ProductCategoryCreateDto dto);
-        Task<ApiResult<bool>> UpdateAsync(int id, ProductCategoryUpdateDto dto);
-        Task<ApiResult<bool>> DeleteAsync(int id);
+        Task<ApiResult<PagedResult<ProductCategoryDto>>> GetPagedAsync(
+            ProductCategoryFilter filter,
+            CancellationToken ct = default);
+        Task<ApiResult<ProductCategoryDto>> GetByIdAsync(int id, CancellationToken ct = default);
+        Task<ApiResult<ProductCategoryDto>> CreateAsync(ProductCategoryCreateDto dto, CancellationToken ct = default);
+        Task<ApiResult<bool>> UpdateAsync(int id, ProductCategoryUpdateDto dto, CancellationToken ct = default);
+        Task<ApiResult<bool>> DeleteAsync(int id, CancellationToken ct = default);
+        Task<ApiResult<bool>> SetActiveAsync(int id, bool isActive, CancellationToken ct = default);
+        Task<ApiResult<bool>> HardDeleteAsync(int id, CancellationToken ct = default);
     }
 }
