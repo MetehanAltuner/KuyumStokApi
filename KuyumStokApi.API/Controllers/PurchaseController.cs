@@ -20,5 +20,16 @@ namespace KuyumStokApi.API.Controllers
             var r = await _svc.CreateAsync(dto, ct);
             return StatusCode(r.StatusCode, r);
         }
+        /// <summary>Alışları filtreleyerek sayfalı listeler.</summary>
+        [HttpGet]
+        [Authorize]
+        public async Task<IActionResult> GetPaged([FromQuery] PurchaseFilter filter, CancellationToken ct)
+            => StatusCode((await _svc.GetPagedAsync(filter, ct)).StatusCode, await _svc.GetPagedAsync(filter, ct));
+
+        /// <summary>Alış detayını (satırları ile) getirir.</summary>
+        [HttpGet("{id:int}")]
+        [Authorize]
+        public async Task<IActionResult> GetById(int id, CancellationToken ct)
+            => StatusCode((await _svc.GetByIdAsync(id, ct)).StatusCode, await _svc.GetByIdAsync(id, ct));
     }
 }

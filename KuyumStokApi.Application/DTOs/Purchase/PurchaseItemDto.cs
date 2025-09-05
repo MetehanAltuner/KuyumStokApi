@@ -33,4 +33,65 @@ namespace KuyumStokApi.Application.DTOs.Purchase
         public DateTime? CreatedAt { get; set; }
         public IReadOnlyList<int> StockIds { get; set; } = Array.Empty<int>();
     }
+    public sealed class PurchaseFilter
+    {
+        public int Page { get; init; } = 1;
+        public int PageSize { get; init; } = 20;
+
+        public int? BranchId { get; init; }
+        public int? UserId { get; init; }
+        public int? CustomerId { get; init; }
+        public int? PaymentMethodId { get; init; }
+
+        public DateTime? FromUtc { get; init; }
+        public DateTime? ToUtc { get; init; }
+    }
+
+    public sealed class PurchaseListDto
+    {
+        public int Id { get; init; }
+        public DateTime? CreatedAt { get; init; }
+        public int? BranchId { get; init; }
+        public string? BranchName { get; init; }
+        public int? UserId { get; init; }
+        public string? UserName { get; init; }
+        public int? CustomerId { get; init; }
+        public string? CustomerName { get; init; }
+        public int? PaymentMethodId { get; init; }
+        public string? PaymentMethod { get; init; }
+        public decimal TotalAmount { get; init; }
+        public int ItemCount { get; init; }
+    }
+
+    public sealed class PurchaseDetailLineDto
+    {
+        public int Id { get; init; }
+        public int StockId { get; init; }
+        public string? Barcode { get; init; }
+        public int Quantity { get; init; }
+        public decimal? PurchasePrice { get; init; }
+
+        // vitrin için okunur isim (varsa)
+        public int? ProductVariantId { get; init; }
+        public string? VariantDisplay { get; init; }
+    }
+
+    public sealed class PurchaseDetailDto
+    {
+        public int Id { get; init; }
+        public DateTime? CreatedAt { get; init; }
+        public int? BranchId { get; init; }
+        public string? BranchName { get; init; }
+        public int? UserId { get; init; }
+        public string? UserName { get; init; }
+        public int? CustomerId { get; init; }
+        public string? CustomerName { get; init; }
+        public int? PaymentMethodId { get; init; }
+        public string? PaymentMethod { get; init; }
+
+        public decimal TotalAmount { get; init; }
+        public int ItemCount { get; init; }
+
+        public IReadOnlyList<PurchaseDetailLineDto> Lines { get; init; } = Array.Empty<PurchaseDetailLineDto>();
+    }
 }

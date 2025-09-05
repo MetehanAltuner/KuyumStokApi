@@ -21,6 +21,10 @@ using KuyumStokApi.Infrastructure.Services.CustomersService;
 using KuyumStokApi.Infrastructure.Services.PaymentMethodsService;
 using KuyumStokApi.Infrastructure.Services.PurchaseService;
 using KuyumStokApi.Infrastructure.Services.SalesService;
+using KuyumStokApi.Infrastructure.Services.RolesService;
+using KuyumStokApi.Infrastructure.Services.LimitsService;
+using KuyumStokApi.Infrastructure.Services.LifecycleActionsService;
+using KuyumStokApi.Infrastructure.Services.ProductLifecycleService;
 
 namespace KuyumStokApi.Infrastructure
 {
@@ -56,6 +60,10 @@ namespace KuyumStokApi.Infrastructure
             services.AddScoped<IPaymentMethodsService, PaymentMethodsService>();
             services.AddScoped<IPurchasesService, PurchasesService>();
             services.AddScoped<ISalesService, SalesService>();
+            services.AddScoped<IRolesService, RolesService>();
+            services.AddScoped<ILimitsService, LimitsService>();
+            services.AddScoped<ILifecycleActionsService, LifecycleActionsService>();
+            services.AddScoped<IProductLifecyclesService, ProductLifecyclesService>();
 
             return services;
         }

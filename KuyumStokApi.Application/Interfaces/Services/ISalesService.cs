@@ -11,5 +11,7 @@ namespace KuyumStokApi.Application.Interfaces.Services
     public interface ISalesService
     {
         Task<ApiResult<SaleResultDto>> CreateAsync(SaleCreateDto dto, CancellationToken ct = default);
+        Task<ApiResult<PagedResult<SaleListDto>>> GetPagedAsync(SaleFilter filter, CancellationToken ct = default);
+        Task<ApiResult<SaleDetailDto>> GetByIdAsync(int id, CancellationToken ct = default);
     }
 }
