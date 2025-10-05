@@ -13,12 +13,19 @@ namespace KuyumStokApi.API.Controllers
         private readonly IStocksService _svc;
         public StocksController(IStocksService svc) => _svc = svc;
 
-        /// <summary>Stokları filtreleyerek sayfalı listeler (varyant ve şube bilgisiyle).</summary>
         [HttpGet]
         [Authorize]
         public async Task<IActionResult> GetPaged([FromQuery] StockFilter filter, CancellationToken ct)
         {
             var r = await _svc.GetPagedAsync(filter, ct);
+            return StatusCode(r.StatusCode, r);
+        }
+
+        [HttpGet("variant/{variantId:int}/detail")]
+        [Authorize]
+        public async Task<IActionResult> GetVariantDetail(int variantId, CancellationToken ct)
+        {
+            var r = await _svc.GetVariantDetailInStoreAsync(variantId, ct);
             return StatusCode(r.StatusCode, r);
         }
 

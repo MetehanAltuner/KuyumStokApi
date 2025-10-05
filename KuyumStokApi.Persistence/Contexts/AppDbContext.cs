@@ -304,30 +304,28 @@ public partial class AppDbContext : DbContext
 
             entity.ToTable("product_variants");
 
+            entity.HasIndex(e => new { e.ProductTypeId, e.Name, e.Brand, e.Ayar, e.Color }, "uq_product_variants_type_name_brand_ayar_color").IsUnique();
+
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.Ayar).HasColumnName("ayar");
             entity.Property(e => e.Brand).HasColumnName("brand");
-            entity.Property(e => e.Carat).HasColumnName("carat");
+            entity.Property(e => e.Color).HasColumnName("color");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.DeletedAt).HasColumnName("deleted_at");
             entity.Property(e => e.DeletedBy).HasColumnName("deleted_by");
-            entity.Property(e => e.Gram).HasColumnName("gram");
             entity.Property(e => e.IsActive)
                 .HasDefaultValue(true)
                 .HasColumnName("is_active");
             entity.Property(e => e.IsDeleted)
                 .HasDefaultValue(false)
                 .HasColumnName("is_deleted");
-            entity.Property(e => e.Milyem).HasColumnName("milyem");
+            entity.Property(e => e.Name).HasColumnName("name");
             entity.Property(e => e.ProductTypeId).HasColumnName("product_type_id");
-            entity.Property(e => e.StoneType).HasColumnName("stone_type");
-            entity.Property(e => e.Thickness).HasColumnName("thickness");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
-            entity.Property(e => e.Width).HasColumnName("width");
 
             entity.HasOne(d => d.ProductType).WithMany(p => p.ProductVariants)
                 .HasForeignKey(d => d.ProductTypeId)
@@ -487,15 +485,21 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.Barcode).HasColumnName("barcode");
             entity.Property(e => e.BranchId).HasColumnName("branch_id");
+            entity.Property(e => e.Carat).HasColumnName("carat");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
+            entity.Property(e => e.Gram).HasColumnName("gram");
+            entity.Property(e => e.Milyem).HasColumnName("milyem");
             entity.Property(e => e.ProductVariantId).HasColumnName("product_variant_id");
             entity.Property(e => e.QrCode).HasColumnName("qr_code");
             entity.Property(e => e.Quantity).HasColumnName("quantity");
+            entity.Property(e => e.StoneType).HasColumnName("stone_type");
+            entity.Property(e => e.Thickness).HasColumnName("thickness");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
+            entity.Property(e => e.Width).HasColumnName("width");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.Stocks)
                 .HasForeignKey(d => d.BranchId)

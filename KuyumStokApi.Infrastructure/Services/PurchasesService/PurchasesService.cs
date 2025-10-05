@@ -10,7 +10,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace KuyumStokApi.Infrastructure.Services.PurchaseService
+namespace KuyumStokApi.Infrastructure.Services.PurchasesService
 {
     /// <summary>Alış işlemleri: stok girişi + fiş/detay + lifecycle.</summary>
     public sealed class PurchasesService : IPurchasesService
@@ -141,10 +141,10 @@ namespace KuyumStokApi.Infrastructure.Services.PurchaseService
                     CustomerName = x.CustomerName,
                     PaymentMethodId = x.p.PaymentMethodId,
                     PaymentMethod = x.PaymentMethod,
-                    ItemCount = _db.PurchaseDetails.Count(d => d.PurchaseId == x.p.Id),
+                    ItemCount = _db.PurchaseDetails.Where(d => d.PurchaseId == x.p.Id).Count(),
                     TotalAmount = _db.PurchaseDetails
                         .Where(d => d.PurchaseId == x.p.Id)
-                        .Sum(d => (decimal?)(d.PurchasePrice ?? 0) * (decimal?)(d.Quantity ?? 0)) ?? 0m
+                        .Sum(d => (d.PurchasePrice ?? 0) * (decimal?)(d.Quantity ?? 0)) ?? 0m
                 })
                 .ToListAsync(ct);
 
@@ -200,7 +200,7 @@ namespace KuyumStokApi.Infrastructure.Services.PurchaseService
                            ProductVariantId = s.ProductVariantId,
                            VariantDisplay =
                                pv == null ? null :
-                               $"{pv.Brand ?? ""} {pv.Ayar ?? ""} {(pv.Gram ?? 0):0.##}g"
+                               $"{pv.Brand ?? ""} {pv.Ayar ?? ""} {s.Gram ?? 0:0.##}g"
                        }).ToListAsync(ct);
 
             var dto = new PurchaseDetailDto

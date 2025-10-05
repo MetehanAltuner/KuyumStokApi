@@ -9,7 +9,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace KuyumStokApi.Infrastructure.Services.Stores
+namespace KuyumStokApi.Infrastructure.Services.StoresService
 {
     /// <summary>Mağaza servis implementasyonu.</summary>
     public sealed class StoresService : IStoresService

@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\KuyumStokApi.Domain\KuyumStokApi.Domain.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.Http" Version="2.3.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.7" />
   </ItemGroup>
   <PropertyGroup>

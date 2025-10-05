@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace KuyumStokApi.API.Controllers
 {
-    /// <summary>Ödeme yöntemleri CRUD & listeleme uçları.</summary>
+    /// <summary>Ödeme yöntemleri CRUD ve listeleme uçları.</summary>
     [ApiController]
     [Route("api/[controller]")]
     public sealed class PaymentMethodsController : ControllerBase

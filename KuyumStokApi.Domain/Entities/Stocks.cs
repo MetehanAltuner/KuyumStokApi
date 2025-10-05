@@ -21,6 +21,18 @@ public partial class Stocks
 
     public DateTime? UpdatedAt { get; set; }
 
+    public decimal? Gram { get; set; }
+
+    public decimal? Thickness { get; set; }
+
+    public decimal? Width { get; set; }
+
+    public string? StoneType { get; set; }
+
+    public decimal? Carat { get; set; }
+
+    public int? Milyem { get; set; }
+
     public virtual Branches? Branch { get; set; }
 
     public virtual ICollection<ProductLifecycles> ProductLifecycles { get; set; } = new List<ProductLifecycles>();

@@ -9,18 +9,6 @@ public partial class ProductVariants
 
     public int? ProductTypeId { get; set; }
 
-    public decimal? Gram { get; set; }
-
-    public decimal? Thickness { get; set; }
-
-    public decimal? Width { get; set; }
-
-    public string? StoneType { get; set; }
-
-    public decimal? Carat { get; set; }
-
-    public int? Milyem { get; set; }
-
     public string? Ayar { get; set; }
 
     public string? Brand { get; set; }
@@ -36,6 +24,10 @@ public partial class ProductVariants
     public int? DeletedBy { get; set; }
 
     public bool IsActive { get; set; }
+
+    public string Name { get; set; } = null!;
+
+    public string? Color { get; set; }
 
     public virtual ICollection<Limits> Limits { get; set; } = new List<Limits>();
 

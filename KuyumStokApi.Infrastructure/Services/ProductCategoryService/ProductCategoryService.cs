@@ -1,5 +1,4 @@
 ﻿using KuyumStokApi.Application.Common;
-using KuyumStokApi.Application.DTOs.ProductCategories;
 using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Persistence.Contexts;
 using KuyumStokApi.Domain.Entities;
@@ -9,6 +8,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using KuyumStokApi.Application.DTOs.ProductCategory;
 
 namespace KuyumStokApi.Infrastructure.Services.ProductCategoryService
 {

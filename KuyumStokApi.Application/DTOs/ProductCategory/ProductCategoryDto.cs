@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace KuyumStokApi.Application.DTOs.ProductCategories
+namespace KuyumStokApi.Application.DTOs.ProductCategory
 {
     public sealed class ProductCategoryDto
     {

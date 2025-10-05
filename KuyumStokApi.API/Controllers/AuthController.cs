@@ -1,6 +1,7 @@
 ﻿using KuyumStokApi.Application.DTOs.Auth;
 using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Domain.Entities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace KuyumStokApi.API.Controllers
@@ -46,6 +47,23 @@ namespace KuyumStokApi.API.Controllers
             var token = await _users.LoginAsync(dto);
             if (token is null) return Unauthorized();
             return Ok(token);
+        }
+        /// <summary>Parola gücü ve kuralları için granüler doğrulama.</summary>
+        [HttpPost("validate-password")]
+        [AllowAnonymous]
+        public async Task<IActionResult> ValidatePassword([FromBody] PasswordCheckRequestDto dto, CancellationToken ct)
+        {
+            var r = await _users.ValidatePasswordAsync(dto, ct);
+            return StatusCode(r.StatusCode, r);
+        }
+
+        /// <summary>Register öncesi tüm alanların granüler doğrulaması.</summary>
+        [HttpPost("validate-register")]
+        [AllowAnonymous]
+        public async Task<IActionResult> ValidateRegister([FromBody] RegisterDto dto, CancellationToken ct)
+        {
+            var r = await _users.ValidateRegisterAsync(dto, ct);
+            return StatusCode(r.StatusCode, r);
         }
     }
 }

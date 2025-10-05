@@ -1,15 +1,10 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace KuyumStokApi.Application.DTOs.ProductVariant
 {
-    // Application/DTOs/ProductVariants/ProductVariantDtos.cs
     namespace KuyumStokApi.Application.DTOs.ProductVariants
     {
-        /// <summary>Ürün varyantı (ör. yüzük, gram altın vb.) veri transfer nesnesi.</summary>
+        /// <summary>Ürün varyantı (model) DTO.</summary>
         public sealed class ProductVariantDto
         {
             /// <summary>Varyant benzersiz kimliği.</summary>
@@ -18,26 +13,14 @@ namespace KuyumStokApi.Application.DTOs.ProductVariant
             /// <summary>Bağlı olduğu ürün türü özeti.</summary>
             public ProductTypeBrief? ProductType { get; set; }
 
-            /// <summary>Gram bilgisi.</summary>
-            public decimal? Gram { get; set; }
+            /// <summary>Model adı (örn. Ajda Bilezik) - ZORUNLU.</summary>
+            public string Name { get; set; } = default!;
 
-            /// <summary>Kalınlık (mm vb.).</summary>
-            public decimal? Thickness { get; set; }
-
-            /// <summary>Genişlik (mm vb.).</summary>
-            public decimal? Width { get; set; }
-
-            /// <summary>Taş tipi (varsa).</summary>
-            public string? StoneType { get; set; }
-
-            /// <summary>Karat (varsa).</summary>
-            public decimal? Carat { get; set; }
-
-            /// <summary>Milyem değeri (varsa).</summary>
-            public int? Milyem { get; set; }
-
-            /// <summary>Ayar bilgisi (ör. 14K, 22K).</summary>
+            /// <summary>Ayar bilgisi (ör. 14, 18, 22, 24, 925, Pt950).</summary>
             public string? Ayar { get; set; }
+
+            /// <summary>Renk (örn. Sarı, Beyaz, Rose).</summary>
+            public string? Color { get; set; }
 
             /// <summary>Marka bilgisi.</summary>
             public string? Brand { get; set; }
@@ -62,38 +45,40 @@ namespace KuyumStokApi.Application.DTOs.ProductVariant
 
                 /// <summary>Ürün türü adı.</summary>
                 public string? Name { get; set; }
+
+                /// <summary>Kategori kimliği (malzeme).</summary>
+                public int? CategoryId { get; set; }
+
+                /// <summary>Kategori adı (Altın, Gümüş, Platin, Pırlanta...).</summary>
+                public string? CategoryName { get; set; }
             }
         }
 
         /// <summary>Yeni ürün varyantı oluşturma modeli.</summary>
         public sealed class ProductVariantCreateDto
         {
-            /// <summary>Bağlı ürün türü (opsiyonel).</summary>
+            /// <summary>Bağlı ürün türü (zorunlu).</summary>
             public int? ProductTypeId { get; set; }
 
-            public decimal? Gram { get; set; }
-            public decimal? Thickness { get; set; }
-            public decimal? Width { get; set; }
-            public string? StoneType { get; set; }
-            public decimal? Carat { get; set; }
-            public int? Milyem { get; set; }
+            /// <summary>Model adı (örn. Ajda Bilezik) - ZORUNLU.</summary>
+            public string Name { get; set; } = default!;
+
             public string? Ayar { get; set; }
+            public string? Color { get; set; }
             public string? Brand { get; set; }
         }
 
         /// <summary>Ürün varyantı güncelleme modeli.</summary>
         public sealed class ProductVariantUpdateDto
         {
-            /// <summary>Bağlı ürün türü (opsiyonel).</summary>
+            /// <summary>Bağlı ürün türü (zorunlu).</summary>
             public int? ProductTypeId { get; set; }
 
-            public decimal? Gram { get; set; }
-            public decimal? Thickness { get; set; }
-            public decimal? Width { get; set; }
-            public string? StoneType { get; set; }
-            public decimal? Carat { get; set; }
-            public int? Milyem { get; set; }
+            /// <summary>Model adı (örn. Ajda Bilezik) - ZORUNLU.</summary>
+            public string Name { get; set; } = default!;
+
             public string? Ayar { get; set; }
+            public string? Color { get; set; }
             public string? Brand { get; set; }
         }
 
@@ -101,7 +86,7 @@ namespace KuyumStokApi.Application.DTOs.ProductVariant
         public sealed record ProductVariantFilter(
             int Page = 1,
             int PageSize = 20,
-            string? Query = null,           // Brand/Ayar/StoneType gibi alanlarda arama yapacağız
+            string? Query = null,           // Name/Brand/Ayar/Color alanlarında arar
             int? ProductTypeId = null,
             bool? IsActive = null,
             bool IncludeDeleted = false,
@@ -109,5 +94,4 @@ namespace KuyumStokApi.Application.DTOs.ProductVariant
             DateTime? UpdatedToUtc = null
         );
     }
-
 }

@@ -1,5 +1,5 @@
 ﻿using KuyumStokApi.Application.Common;
-using KuyumStokApi.Application.DTOs.ProductCategories;
+using KuyumStokApi.Application.DTOs.ProductCategory;
 using System;
 using System.Collections.Generic;
 using System.Linq;

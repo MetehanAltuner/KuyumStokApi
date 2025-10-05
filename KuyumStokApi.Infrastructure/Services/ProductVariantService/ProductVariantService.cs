@@ -3,15 +3,10 @@ using KuyumStokApi.Application.DTOs.ProductVariant.KuyumStokApi.Application.DTOs
 using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Persistence.Contexts;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace KuyumStokApi.Infrastructure.Services.ProductVariantService
 {
-    /// <summary>Ürün varyantı işlemleri servisi.</summary>
+    /// <summary>Ürün varyantı işlemleri servisi (model odaklı).</summary>
     public sealed class ProductVariantService : IProductVariantService
     {
         private readonly AppDbContext _db;
@@ -30,9 +25,10 @@ namespace KuyumStokApi.Infrastructure.Services.ProductVariantService
             {
                 var qstr = filter.Query.Trim();
                 q = q.Where(v =>
+                    (v.Name  != null && EF.Functions.ILike(v.Name,  $"%{qstr}%")) ||
                     (v.Brand != null && EF.Functions.ILike(v.Brand, $"%{qstr}%")) ||
-                    (v.Ayar != null && EF.Functions.ILike(v.Ayar, $"%{qstr}%")) ||
-                    (v.StoneType != null && EF.Functions.ILike(v.StoneType, $"%{qstr}%"))
+                    (v.Ayar  != null && EF.Functions.ILike(v.Ayar,  $"%{qstr}%")) ||
+                    (v.Color != null && EF.Functions.ILike(v.Color, $"%{qstr}%"))
                 );
             }
 
@@ -51,6 +47,7 @@ namespace KuyumStokApi.Infrastructure.Services.ProductVariantService
             var total = await q.LongCountAsync(ct);
 
             var items = await q
+                .Include(v => v.ProductType)!.ThenInclude(t => t.Category)
                 .OrderByDescending(v => v.UpdatedAt ?? DateTime.MinValue)
                 .ThenBy(v => v.Id)
                 .Skip((page - 1) * pageSize)
@@ -58,13 +55,9 @@ namespace KuyumStokApi.Infrastructure.Services.ProductVariantService
                 .Select(v => new ProductVariantDto
                 {
                     Id = v.Id,
-                    Gram = v.Gram,
-                    Thickness = v.Thickness,
-                    Width = v.Width,
-                    StoneType = v.StoneType,
-                    Carat = v.Carat,
-                    Milyem = v.Milyem,
+                    Name = v.Name,
                     Ayar = v.Ayar,
+                    Color = v.Color,
                     Brand = v.Brand,
                     CreatedAt = v.CreatedAt,
                     UpdatedAt = v.UpdatedAt,
@@ -73,10 +66,15 @@ namespace KuyumStokApi.Infrastructure.Services.ProductVariantService
                     ProductType = new ProductVariantDto.ProductTypeBrief
                     {
                         Id = v.ProductTypeId,
-                        Name = v.ProductType != null ? v.ProductType.Name : null
+                        Name = v.ProductType != null ? v.ProductType.Name : null,
+                        CategoryId = v.ProductType != null ? v.ProductType.CategoryId : null,
+                        CategoryName = v.ProductType != null && v.ProductType.Category != null
+                                        ? v.ProductType.Category.Name
+                                        : null
                     }
                 })
                 .ToListAsync(ct);
+
 
             return ApiResult<PagedResult<ProductVariantDto>>.Ok(
                 new PagedResult<ProductVariantDto> { Items = items, Page = page, PageSize = pageSize, TotalCount = total },
@@ -87,6 +85,7 @@ namespace KuyumStokApi.Infrastructure.Services.ProductVariantService
         public async Task<ApiResult<ProductVariantDto>> GetByIdAsync(int id, CancellationToken ct = default)
         {
             var v = await _db.ProductVariants.AsNoTracking().IgnoreQueryFilters()
+                        .Include(x => x.ProductType)!.ThenInclude(t => t.Category)
                         .FirstOrDefaultAsync(x => x.Id == id, ct);
 
             if (v is null)
@@ -95,13 +94,9 @@ namespace KuyumStokApi.Infrastructure.Services.ProductVariantService
             var dto = new ProductVariantDto
             {
                 Id = v.Id,
-                Gram = v.Gram,
-                Thickness = v.Thickness,
-                Width = v.Width,
-                StoneType = v.StoneType,
-                Carat = v.Carat,
-                Milyem = v.Milyem,
+                Name = v.Name,
                 Ayar = v.Ayar,
+                Color = v.Color,
                 Brand = v.Brand,
                 CreatedAt = v.CreatedAt,
                 UpdatedAt = v.UpdatedAt,
@@ -110,11 +105,9 @@ namespace KuyumStokApi.Infrastructure.Services.ProductVariantService
                 ProductType = new ProductVariantDto.ProductTypeBrief
                 {
                     Id = v.ProductTypeId,
-                    Name = v.ProductTypeId == null ? null :
-                           await _db.ProductTypes.AsNoTracking()
-                               .Where(t => t.Id == v.ProductTypeId)
-                               .Select(t => t.Name)
-                               .FirstOrDefaultAsync(ct)
+                    Name = v.ProductType?.Name,
+                    CategoryId = v.ProductType?.CategoryId,
+                    CategoryName = v.ProductType?.Category?.Name
                 }
             };
 
@@ -123,18 +116,30 @@ namespace KuyumStokApi.Infrastructure.Services.ProductVariantService
 
         public async Task<ApiResult<ProductVariantDto>> CreateAsync(ProductVariantCreateDto dto, CancellationToken ct = default)
         {
+            if (dto.ProductTypeId is null || dto.ProductTypeId <= 0)
+                return ApiResult<ProductVariantDto>.Fail("ProductTypeId zorunludur.", statusCode: 400);
+            if (string.IsNullOrWhiteSpace(dto.Name))
+                return ApiResult<ProductVariantDto>.Fail("Name (model) zorunludur.", statusCode: 400);
+
+            // unique: (type, name, brand, ayar, color)
+            var exists = await _db.ProductVariants.AnyAsync(v =>
+                v.ProductTypeId == dto.ProductTypeId &&
+                v.Name == dto.Name &&
+                v.Brand == dto.Brand &&
+                v.Ayar == dto.Ayar &&
+                v.Color == dto.Color, ct);
+
+            if (exists)
+                return ApiResult<ProductVariantDto>.Fail("Aynı tür/model/marka/ayar/renk zaten mevcut.", statusCode: 409);
+
             var now = DateTime.UtcNow;
 
             var entity = new Domain.Entities.ProductVariants
             {
                 ProductTypeId = dto.ProductTypeId,
-                Gram = dto.Gram,
-                Thickness = dto.Thickness,
-                Width = dto.Width,
-                StoneType = dto.StoneType,
-                Carat = dto.Carat,
-                Milyem = dto.Milyem,
+                Name = dto.Name,
                 Ayar = dto.Ayar,
+                Color = dto.Color,
                 Brand = dto.Brand,
                 CreatedAt = now,
                 UpdatedAt = now,
@@ -144,7 +149,7 @@ namespace KuyumStokApi.Infrastructure.Services.ProductVariantService
             _db.ProductVariants.Add(entity);
             await _db.SaveChangesAsync(ct);
 
-            var created = await GetByIdAsync(entity.Id, ct); // DTO’yu ilişkisiyle getir
+            var created = await GetByIdAsync(entity.Id, ct);
             created.StatusCode = 201;
             created.Message = "Oluşturuldu";
             return created;
@@ -156,14 +161,27 @@ namespace KuyumStokApi.Infrastructure.Services.ProductVariantService
             if (entity is null)
                 return ApiResult<bool>.Fail("Varyant bulunamadı", statusCode: 404);
 
+            if (dto.ProductTypeId is null || dto.ProductTypeId <= 0)
+                return ApiResult<bool>.Fail("ProductTypeId zorunludur.", statusCode: 400);
+            if (string.IsNullOrWhiteSpace(dto.Name))
+                return ApiResult<bool>.Fail("Name (model) zorunludur.", statusCode: 400);
+
+            // unique çakışma kontrolü
+            var conflict = await _db.ProductVariants.AnyAsync(v =>
+                v.Id != id &&
+                v.ProductTypeId == dto.ProductTypeId &&
+                v.Name == dto.Name &&
+                v.Brand == dto.Brand &&
+                v.Ayar == dto.Ayar &&
+                v.Color == dto.Color, ct);
+
+            if (conflict)
+                return ApiResult<bool>.Fail("Aynı tür/model/marka/ayar/renk kombinasyonu zaten var.", statusCode: 409);
+
             entity.ProductTypeId = dto.ProductTypeId;
-            entity.Gram = dto.Gram;
-            entity.Thickness = dto.Thickness;
-            entity.Width = dto.Width;
-            entity.StoneType = dto.StoneType;
-            entity.Carat = dto.Carat;
-            entity.Milyem = dto.Milyem;
+            entity.Name = dto.Name;
             entity.Ayar = dto.Ayar;
+            entity.Color = dto.Color;
             entity.Brand = dto.Brand;
             entity.UpdatedAt = DateTime.UtcNow;
 
@@ -178,24 +196,19 @@ namespace KuyumStokApi.Infrastructure.Services.ProductVariantService
             if (entity is null)
                 return ApiResult<bool>.Fail("Varyant bulunamadı", statusCode: 404);
 
-            // Bağlı kayıt kontrolleri
-            var hasStocks = await _db.Stocks.AnyAsync(s => s.ProductVariantId == id /* && !s.IsDeleted */ , ct);
+            var hasStocks = await _db.Stocks.AnyAsync(s => s.ProductVariantId == id, ct);
             if (hasStocks)
                 return ApiResult<bool>.Fail("Bu varyanta bağlı stok kayıtları var. Önce stokları temizleyin.", statusCode: 409);
 
-            var hasLimits = await _db.Limits.AnyAsync(l => l.ProductVariantId == id /* && !l.IsDeleted */ , ct);
+            var hasLimits = await _db.Limits.AnyAsync(l => l.ProductVariantId == id, ct);
             if (hasLimits)
                 return ApiResult<bool>.Fail("Bu varyanta bağlı limit kayıtları var. Önce limitleri temizleyin.", statusCode: 409);
 
-            // SaleDetails / PurchaseDetails dolaylı bağımlılıkları stok üzerinden kontrol etmek istersen,
-            // burada ek join'lerle kontrol edebilirsin. (Şu an stok varsa zaten engelliyoruz.)
-
-            _db.ProductVariants.Remove(entity); // soft-delete’e döner
+            _db.ProductVariants.Remove(entity); // mevcut soft-delete davranışınla uyumlu
             await _db.SaveChangesAsync(ct);
             return ApiResult<bool>.Ok(true, "Silindi (soft)", 200);
         }
 
-        // Hard delete (hiç bağlı kayıt yoksa)
         public async Task<ApiResult<bool>> HardDeleteAsync(int id, CancellationToken ct = default)
         {
             var anyStock = await _db.Stocks.IgnoreQueryFilters().AnyAsync(s => s.ProductVariantId == id, ct);

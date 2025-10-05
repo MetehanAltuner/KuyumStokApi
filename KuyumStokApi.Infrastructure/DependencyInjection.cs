@@ -16,15 +16,15 @@ using KuyumStokApi.Infrastructure.Services.ProductTypService;
 using KuyumStokApi.Infrastructure.Services.ProductVariantService;
 using KuyumStokApi.Infrastructure.Services.StocksService;
 using KuyumStokApi.Infrastructure.Services.BranchesService;
-using KuyumStokApi.Infrastructure.Services.Stores;
 using KuyumStokApi.Infrastructure.Services.CustomersService;
 using KuyumStokApi.Infrastructure.Services.PaymentMethodsService;
-using KuyumStokApi.Infrastructure.Services.PurchaseService;
 using KuyumStokApi.Infrastructure.Services.SalesService;
 using KuyumStokApi.Infrastructure.Services.RolesService;
 using KuyumStokApi.Infrastructure.Services.LimitsService;
 using KuyumStokApi.Infrastructure.Services.LifecycleActionsService;
 using KuyumStokApi.Infrastructure.Services.ProductLifecycleService;
+using KuyumStokApi.Infrastructure.Services.StoresService;
+using KuyumStokApi.Infrastructure.Services.PurchasesService;
 
 namespace KuyumStokApi.Infrastructure
 {

@@ -140,7 +140,7 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                     CustomerName = x.CustomerName,
                     PaymentMethodId = x.s.PaymentMethodId,
                     PaymentMethod = x.PaymentMethod,
-                    ItemCount = _db.SaleDetails.Count(d => d.SaleId == x.s.Id),
+                    ItemCount = _db.SaleDetails.Where(d => d.SaleId == x.s.Id).Count(),
                     TotalAmount = _db.SaleDetails
                         .Where(d => d.SaleId == x.s.Id)
                         .Sum(d => (decimal?)(d.SoldPrice ?? 0) * (decimal?)(d.Quantity ?? 0)) ?? 0m
@@ -199,7 +199,7 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                            ProductVariantId = st.ProductVariantId,
                            VariantDisplay =
                                pv == null ? null :
-                               $"{pv.Brand ?? ""} {pv.Ayar ?? ""} {(pv.Gram ?? 0):0.##}g"
+                               $"{pv.Brand ?? ""} {pv.Ayar ?? ""} {(st.Gram ?? 0):0.##}g"
                        }).ToListAsync(ct);
 
             var dto = new SaleDetailDto

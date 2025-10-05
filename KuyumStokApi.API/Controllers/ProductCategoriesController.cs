@@ -1,4 +1,4 @@
-﻿using KuyumStokApi.Application.DTOs.ProductCategories;
+﻿using KuyumStokApi.Application.DTOs.ProductCategory;
 using KuyumStokApi.Application.Interfaces.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

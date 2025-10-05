@@ -1,46 +1,36 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace KuyumStokApi.Application.DTOs.Stocks
 {
-    /// <summary>Stok kaydı DTO.</summary>
+    /// <summary>Stok kaydı DTO (liste satırı).</summary>
     public sealed class StockDto
     {
-        /// <summary>Stok kimliği.</summary>
         public int Id { get; set; }
 
-        /// <summary>Bağlı ürün varyantı özeti.</summary>
         public VariantBrief? ProductVariant { get; set; }
-
-        /// <summary>Bağlı şube özeti.</summary>
         public BranchBrief? Branch { get; set; }
 
-        /// <summary>Adet.</summary>
         public int? Quantity { get; set; }
-
-        /// <summary>Barkod (unique).</summary>
         public string Barcode { get; set; } = null!;
-
-        /// <summary>QR kod.</summary>
         public string? QrCode { get; set; }
-
-        /// <summary>Oluşturulma (UTC).</summary>
         public DateTime? CreatedAt { get; set; }
-
-        /// <summary>Güncellenme (UTC).</summary>
         public DateTime? UpdatedAt { get; set; }
+
+        /// <summary>Satır için toplam ağırlık = (Gram * Adet)</summary>
+        public decimal TotalWeight { get; set; }
 
         public sealed class VariantBrief
         {
             public int? Id { get; set; }
+            public string? Name { get; set; }              // model (Ajda Bilezik)
             public string? Ayar { get; set; }
-            public decimal? Gram { get; set; }
+            public string? Color { get; set; }
             public string? Brand { get; set; }
+
+            public decimal? Gram { get; set; }             // Stocks.Gram
             public int? ProductTypeId { get; set; }
-            public string? ProductTypeName { get; set; }
+            public string? ProductTypeName { get; set; }   // tür (bilezik, yüzük)
+            public string? CategoryName { get; set; }      // kategori (Altın, Gümüş)
         }
 
         public sealed class BranchBrief
@@ -70,11 +60,11 @@ namespace KuyumStokApi.Application.DTOs.Stocks
         public string? QrCode { get; set; }
     }
 
-    /// <summary>Stoklar için filtre/sayfalama.</summary>
+    /// <summary>Liste filtresi (branch boş ise JWT’den alınır).</summary>
     public sealed record StockFilter(
         int Page = 1,
         int PageSize = 20,
-        string? Query = null,           // barcode/qr/brand/ayar serbest arama
+        string? Query = null,           // barcode/qr/variant/brand/ayar/renk
         int? BranchId = null,
         int? ProductTypeId = null,
         int? ProductVariantId = null,

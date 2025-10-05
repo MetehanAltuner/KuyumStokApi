@@ -11,7 +11,13 @@ namespace KuyumStokApi.Application.Interfaces.Services
     /// <summary>Stok servis sözleşmesi.</summary>
     public interface IStocksService
     {
+        // LİSTE: kullanıcının branch’ındaki stok SATIRLARI (grup yok)
         Task<ApiResult<PagedResult<StockDto>>> GetPagedAsync(StockFilter filter, CancellationToken ct = default);
+
+        // DETAY: seçili varyant, aynı store’daki tüm şubeler
+        Task<ApiResult<StockVariantDetailByStoreDto>> GetVariantDetailInStoreAsync(int variantId, CancellationToken ct = default);
+
+        // Mevcut CRUD imzaları
         Task<ApiResult<StockDto>> GetByIdAsync(int id, CancellationToken ct = default);
         Task<ApiResult<StockDto>> GetByBarcodeAsync(string barcode, CancellationToken ct = default);
         Task<ApiResult<StockDto>> CreateAsync(StockCreateDto dto, CancellationToken ct = default);

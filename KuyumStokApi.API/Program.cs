@@ -7,6 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.Filters;
 using System.Text;
+using KuyumStokApi.Application.Interfaces.Auth;
 static byte[] DecodeKey(string? b64)
 {
     if (string.IsNullOrWhiteSpace(b64))
@@ -24,6 +25,8 @@ builder.Services.AddControllers();
 
 builder.Services.AddPersistence(cfg);
 builder.Services.AddInfrastructure(cfg);
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUserContext, CurrentUserContext>();
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
