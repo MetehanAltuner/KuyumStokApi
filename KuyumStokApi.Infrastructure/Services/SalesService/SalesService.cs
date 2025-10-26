@@ -20,16 +20,67 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
 
         public async Task<ApiResult<SaleResultDto>> CreateAsync(SaleCreateDto dto, CancellationToken ct = default)
         {
-            if (dto.Items.Count == 0)
+            // ---- VALIDATION ----
+            if (dto.Items is null || dto.Items.Count == 0)
                 return ApiResult<SaleResultDto>.Fail("Kalem yok.", statusCode: 400);
+
+            if (!dto.UserId.HasValue)
+                return ApiResult<SaleResultDto>.Fail("UserId belirtilmeli (veya controller CurrentUser ile set etmelidir).", statusCode: 400);
+
+            if (dto.BranchId <= 0)
+                return ApiResult<SaleResultDto>.Fail("BranchId geçersiz.", statusCode: 400);
+
+            // ---- CUSTOMER INLINE UPSERT ----
+            int? customerId = dto.CustomerId;
+            if (!customerId.HasValue)
+            {
+                // Ad+Telefon verilmişse mevcut müşteriyi bul, yoksa oluştur.
+                if (!string.IsNullOrWhiteSpace(dto.CustomerName))
+                {
+                    var existing = await _db.Customers
+                        .Where(x => x.IsDeleted == false && x.Name == dto.CustomerName &&
+                                   (dto.CustomerPhone == null || x.Phone == dto.CustomerPhone))
+                        .OrderByDescending(x => x.Id)
+                        .FirstOrDefaultAsync(ct);
+
+                    if (existing is null)
+                    {
+                        var newCust = new Customers
+                        {
+                            Name = dto.CustomerName!,
+                            Phone = dto.CustomerPhone,
+                            Note = string.IsNullOrWhiteSpace(dto.CustomerNationalId)
+                                ? null
+                                : $"TC:{dto.CustomerNationalId}"
+                        };
+                        _db.Customers.Add(newCust);
+                        await _db.SaveChangesAsync(ct);
+                        customerId = newCust.Id;
+                    }
+                    else
+                    {
+                        // Gerekirse TC bilgisini note’a ekle/merge
+                        if (!string.IsNullOrWhiteSpace(dto.CustomerNationalId) &&
+                            (existing.Note == null || !existing.Note.Contains(dto.CustomerNationalId)))
+                        {
+                            existing.Note = (existing.Note ?? string.Empty) + $" TC:{dto.CustomerNationalId}";
+                            _db.Customers.Update(existing);
+                            await _db.SaveChangesAsync(ct);
+                        }
+                        customerId = existing.Id;
+                    }
+                }
+                // isim de yoksa müşterisiz satışa izin veriyoruz (customerId null)
+            }
 
             using var tx = await _db.Database.BeginTransactionAsync(ct);
 
+            // ---- SALES (başlık) ----
             var sale = new Sales
             {
                 UserId = dto.UserId,
                 BranchId = dto.BranchId,
-                CustomerId = dto.CustomerId,
+                CustomerId = customerId,
                 PaymentMethodId = dto.PaymentMethodId
             };
             _db.Sales.Add(sale);
@@ -37,9 +88,16 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
 
             var touchedStocks = new List<int>();
 
+            // ---- (OPSİYONEL) TOPLU LOCK — aynı stoğu iki işlem aynı anda düşmesin ----
+            var distinctStockIds = dto.Items.Select(i => i.StockId).Distinct().ToArray();
+            // Npgsql’de FOR UPDATE:
+            //var lockedStocks = await _db.Stocks
+            //    .FromSqlInterpolated($@"SELECT * FROM public.stocks WHERE id = ANY({distinctStockIds}) FOR UPDATE")
+            //    .ToListAsync(ct);
+
+            // ---- KALEMLER ----
             foreach (var i in dto.Items)
             {
-                // stok LOCK için SELECT ... FOR UPDATE muadili:
                 var stock = await _db.Stocks
                     .Where(s => s.Id == i.StockId)
                     .FirstOrDefaultAsync(ct);
@@ -48,6 +106,9 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                     return ApiResult<SaleResultDto>.Fail($"Stok bulunamadı: {i.StockId}", statusCode: 404);
 
                 var qty = stock.Quantity ?? 0;
+                if (i.Quantity <= 0)
+                    return ApiResult<SaleResultDto>.Fail($"Geçersiz adet: {i.Quantity}", statusCode: 400);
+
                 if (qty < i.Quantity)
                     return ApiResult<SaleResultDto>.Fail($"Yetersiz stok (id:{i.StockId})", statusCode: 409);
 
@@ -62,7 +123,7 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                     StockId = stock.Id
                 });
 
-                // lifecycle: “Çıkış”
+                // Lifecycle (Çıkış)
                 _db.ProductLifecycles.Add(new ProductLifecycles
                 {
                     StockId = stock.Id,
@@ -75,7 +136,7 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                 touchedStocks.Add(stock.Id);
             }
 
-            // opsiyonel: kart/pos satışlarında bank_transactions
+            // ---- (OPSİYONEL) POS / BANKA HAREKETİ ----
             if (dto.BankId.HasValue && dto.ExpectedAmount.HasValue)
             {
                 _db.BankTransactions.Add(new BankTransactions
@@ -98,22 +159,23 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                 StockIds = touchedStocks
             }, "Satış kaydedildi", 201);
         }
-        public async Task<ApiResult<PagedResult<SaleListDto>>> GetPagedAsync(SaleFilter filter, CancellationToken ct = default)
+        public async Task<ApiResult<PagedResult<SaleListDto>>> GetPagedAsync(
+    SaleFilter filter, CancellationToken ct = default)
         {
             var page = Math.Max(1, filter.Page);
             var size = Math.Clamp(filter.PageSize, 1, 200);
 
             var q =
-                from s in _db.Sales.AsNoTracking()
+                from d in _db.SaleDetails.AsNoTracking()
+                join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                join st in _db.Stocks.AsNoTracking() on d.StockId equals st.Id
+                join pv in _db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id into jpv
+                from pv in jpv.DefaultIfEmpty()
                 join b in _db.Branches.AsNoTracking() on s.BranchId equals b.Id into jb
                 from b in jb.DefaultIfEmpty()
                 join u in _db.Users.AsNoTracking() on s.UserId equals u.Id into ju
                 from u in ju.DefaultIfEmpty()
-                join c in _db.Customers.AsNoTracking() on s.CustomerId equals c.Id into jc
-                from c in jc.DefaultIfEmpty()
-                join pm in _db.PaymentMethods.AsNoTracking() on s.PaymentMethodId equals pm.Id into jpm
-                from pm in jpm.DefaultIfEmpty()
-                select new { s, BranchName = b!.Name, UserName = u!.Username, CustomerName = c!.Name, PaymentMethod = pm!.Name };
+                select new { d, s, st, pv, b, u };
 
             if (filter.BranchId.HasValue) q = q.Where(x => x.s.BranchId == filter.BranchId);
             if (filter.UserId.HasValue) q = q.Where(x => x.s.UserId == filter.UserId);
@@ -130,20 +192,20 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                 .Take(size)
                 .Select(x => new SaleListDto
                 {
-                    Id = x.s.Id,
+                    SaleId = x.s.Id,
+                    LineId = x.d.Id,
                     CreatedAt = x.s.CreatedAt,
                     BranchId = x.s.BranchId,
-                    BranchName = x.BranchName,
+                    BranchName = x.b != null ? x.b.Name : null,
                     UserId = x.s.UserId,
-                    UserName = x.UserName,
-                    CustomerId = x.s.CustomerId,
-                    CustomerName = x.CustomerName,
-                    PaymentMethodId = x.s.PaymentMethodId,
-                    PaymentMethod = x.PaymentMethod,
-                    ItemCount = _db.SaleDetails.Where(d => d.SaleId == x.s.Id).Count(),
-                    TotalAmount = _db.SaleDetails
-                        .Where(d => d.SaleId == x.s.Id)
-                        .Sum(d => (decimal?)(d.SoldPrice ?? 0) * (decimal?)(d.Quantity ?? 0)) ?? 0m
+                    UserName = x.u != null ? x.u.Username : null,
+                    StockId = x.st.Id,
+                    ProductName = x.pv != null ? x.pv.Name : null,
+                    Ayar = x.pv != null ? x.pv.Ayar : null,
+                    Renk = x.pv != null ? x.pv.Color : null,
+                    AgirlikGram = x.st.Gram,
+                    Quantity = x.d.Quantity ?? 0,
+                    SoldPrice = x.d.SoldPrice
                 })
                 .ToListAsync(ct);
 
@@ -155,71 +217,44 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                 TotalCount = total
             };
 
-            return ApiResult<PagedResult<SaleListDto>>.Ok(result, "Satış listesi", 200);
+            return ApiResult<PagedResult<SaleListDto>>.Ok(result, "Satış kalem listesi", 200);
         }
 
-        public async Task<ApiResult<SaleDetailDto>> GetByIdAsync(int id, CancellationToken ct = default)
+        public async Task<ApiResult<SaleLineDetailDto>> GetLineByIdAsync(int lineId, CancellationToken ct = default)
         {
-            var head =
-                await (from s in _db.Sales.AsNoTracking()
-                       join b in _db.Branches.AsNoTracking() on s.BranchId equals b.Id into jb
-                       from b in jb.DefaultIfEmpty()
-                       join u in _db.Users.AsNoTracking() on s.UserId equals u.Id into ju
-                       from u in ju.DefaultIfEmpty()
-                       join c in _db.Customers.AsNoTracking() on s.CustomerId equals c.Id into jc
-                       from c in jc.DefaultIfEmpty()
-                       join pm in _db.PaymentMethods.AsNoTracking() on s.PaymentMethodId equals pm.Id into jpm
-                       from pm in jpm.DefaultIfEmpty()
-                       where s.Id == id
-                       select new
-                       {
-                           s,
-                           BranchName = b!.Name,
-                           UserName = u!.Username,
-                           CustomerName = c!.Name,
-                           PaymentMethod = pm!.Name
-                       }).FirstOrDefaultAsync(ct);
+            var q =
+                from d in _db.SaleDetails.AsNoTracking()
+                join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                join st in _db.Stocks.AsNoTracking() on d.StockId equals st.Id
+                join pv in _db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id into jpv
+                from pv in jpv.DefaultIfEmpty()
+                join pm in _db.PaymentMethods.AsNoTracking() on s.PaymentMethodId equals pm.Id into jpm
+                from pm in jpm.DefaultIfEmpty()
+                where d.Id == lineId
+                select new SaleLineDetailDto
+                {
+                    SaleId = s.Id,
+                    LineId = d.Id,
+                    CreatedAt = s.CreatedAt,
+                    PaymentMethod = pm != null ? pm.Name : null,
 
-            if (head is null)
-                return ApiResult<SaleDetailDto>.Fail("Satış bulunamadı", statusCode: 404);
+                    StockId = st.Id,
+                    ProductName = pv != null ? pv.Name : null,
+                    Ayar = pv != null ? pv.Ayar : null,
+                    Renk = pv != null ? pv.Color : null,
+                    AgirlikGram = st.Gram,
 
-            var lines =
-                await (from d in _db.SaleDetails.AsNoTracking()
-                       join st in _db.Stocks.AsNoTracking() on d.StockId equals st.Id
-                       join pv in _db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id into jpv
-                       from pv in jpv.DefaultIfEmpty()
-                       where d.SaleId == id
-                       select new SaleDetailLineDto
-                       {
-                           Id = d.Id,
-                           StockId = st.Id,
-                           Barcode = st.Barcode,
-                           Quantity = d.Quantity ?? 0,
-                           SoldPrice = d.SoldPrice,
-                           ProductVariantId = st.ProductVariantId,
-                           VariantDisplay =
-                               pv == null ? null :
-                               $"{pv.Brand ?? ""} {pv.Ayar ?? ""} {(st.Gram ?? 0):0.##}g"
-                       }).ToListAsync(ct);
+                    ListeFiyati = null,                 // Şemada katalog/list price yok
+                    SatisFiyati = d.SoldPrice
+                };
 
-            var dto = new SaleDetailDto
-            {
-                Id = head.s.Id,
-                CreatedAt = head.s.CreatedAt,
-                BranchId = head.s.BranchId,
-                BranchName = head.BranchName,
-                UserId = head.s.UserId,
-                UserName = head.UserName,
-                CustomerId = head.s.CustomerId,
-                CustomerName = head.CustomerName,
-                PaymentMethodId = head.s.PaymentMethodId,
-                PaymentMethod = head.PaymentMethod,
-                ItemCount = lines.Count,
-                TotalAmount = lines.Sum(l => (l.SoldPrice ?? 0) * l.Quantity),
-                Lines = lines
-            };
+            var dto = await q.FirstOrDefaultAsync(ct);
+            if (dto is null)
+                return ApiResult<SaleLineDetailDto>.Fail("Satış kalemi bulunamadı", statusCode: 404);
 
-            return ApiResult<SaleDetailDto>.Ok(dto, "Detay", 200);
+            return ApiResult<SaleLineDetailDto>.Ok(dto, "Satış kalem detayı", 200);
         }
+
+
     }
 }
