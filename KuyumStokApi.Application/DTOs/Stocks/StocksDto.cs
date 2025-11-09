@@ -45,7 +45,8 @@ namespace KuyumStokApi.Application.DTOs.Stocks
     {
         public int? ProductVariantId { get; set; }
         public int? BranchId { get; set; }
-        public int? Quantity { get; set; }
+        public int Quantity { get; set; }
+        public decimal Weight { get; set; }
         public string Barcode { get; set; } = null!;
         public string? QrCode { get; set; }
     }
