@@ -217,12 +217,13 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                 return ApiResult<StockDto>.Fail("Bu barkod zaten kullanılıyor.", statusCode: 409);
 
             var now = DateTime.UtcNow;
-
+            
             var entity = new Domain.Entities.Stocks
             {
                 ProductVariantId = dto.ProductVariantId,
-                BranchId = dto.BranchId,
+                BranchId = _user.BranchId, //Bunu user üzerinden allllll
                 Quantity = dto.Quantity,
+                Gram = dto.Weight,
                 Barcode = dto.Barcode,
                 QrCode = dto.QrCode,
                 CreatedAt = now,
