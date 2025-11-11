@@ -37,6 +37,9 @@ namespace KuyumStokApi.Application.DTOs.ProductVariant
             /// <summary>Yumuşak silinmiş mi?</summary>
             public bool IsDeleted { get; set; }
 
+            /// <summary>Favori ürün mü?</summary>
+            public bool IsFavorite { get; set; }
+
             /// <summary>Ürün türü özet modeli.</summary>
             public sealed class ProductTypeBrief
             {
@@ -66,6 +69,7 @@ namespace KuyumStokApi.Application.DTOs.ProductVariant
             public string? Ayar { get; set; }
             public string? Color { get; set; }
             public string? Brand { get; set; }
+            public bool IsFavorite { get; set; }
         }
 
         /// <summary>Ürün varyantı güncelleme modeli.</summary>
@@ -80,6 +84,7 @@ namespace KuyumStokApi.Application.DTOs.ProductVariant
             public string? Ayar { get; set; }
             public string? Color { get; set; }
             public string? Brand { get; set; }
+            public bool IsFavorite { get; set; }
         }
 
         /// <summary>Varyantlar için filtre/sayfalama parametreleri.</summary>

@@ -82,5 +82,23 @@ namespace KuyumStokApi.API.Controllers
             var r = await _svc.HardDeleteAsync(id, ct);
             return StatusCode(r.StatusCode, r);
         }
+
+        /// <summary>
+        /// En çok satılan ürünleri (favori ürünler) getirir.
+        /// </summary>
+        /// <param name="top">Kaç adet gösterilsin (default 10)</param>
+        /// <param name="days">Son kaç günün satışları (default 30)</param>
+        /// <param name="onlyMarked">Sadece IsFavorite=true olanlar mı (default false)</param>
+        [HttpGet("favorites")]
+        [Authorize]
+        public async Task<IActionResult> GetFavorites(
+            [FromQuery] int top = 10,
+            [FromQuery] int days = 30,
+            [FromQuery] bool onlyMarked = false,
+            CancellationToken ct = default)
+        {
+            var r = await _svc.GetFavoritesAsync(top, days, onlyMarked, ct);
+            return StatusCode(r.StatusCode, r);
+        }
     }
 }

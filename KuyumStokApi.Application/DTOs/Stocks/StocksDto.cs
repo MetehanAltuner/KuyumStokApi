@@ -40,15 +40,24 @@ namespace KuyumStokApi.Application.DTOs.Stocks
         }
     }
 
-    /// <summary>Stok oluşturma DTO.</summary>
+    /// <summary>Stok oluşturma DTO (Entity ile tam uyumlu, merge için gerekli alanlar).</summary>
     public sealed class StockCreateDto
     {
-        public int? ProductVariantId { get; set; }
-        public int? BranchId { get; set; }
-        public int Quantity { get; set; }
-        public decimal Weight { get; set; }
-        public string Barcode { get; set; } = null!;
+        public int ProductVariantId { get; set; }
+        public int? BranchId { get; set; }      // yoksa CurrentUser.BranchId
+        public int Quantity { get; set; }       // >= 1
+        public string? Barcode { get; set; }
         public string? QrCode { get; set; }
+        public bool GenerateQrCode { get; set; }
+
+        // Fiziksel/ayrıştırıcı özellikler (merge için şart)
+        public decimal? Gram { get; set; }
+        public decimal? Thickness { get; set; }
+        public decimal? Width { get; set; }
+        public string? StoneType { get; set; }
+        public decimal? Carat { get; set; }
+        public int? Milyem { get; set; }
+        public string? Color { get; set; }
     }
 
     /// <summary>Stok güncelleme DTO.</summary>
@@ -59,9 +68,18 @@ namespace KuyumStokApi.Application.DTOs.Stocks
         public int? Quantity { get; set; }
         public string? Barcode { get; set; } // boşsa değiştirme
         public string? QrCode { get; set; }
+
+        // Fiziksel özellikler (nullable - değiştirilmek istenirse)
+        public decimal? Gram { get; set; }
+        public decimal? Thickness { get; set; }
+        public decimal? Width { get; set; }
+        public string? StoneType { get; set; }
+        public decimal? Carat { get; set; }
+        public int? Milyem { get; set; }
+        public string? Color { get; set; }
     }
 
-    /// <summary>Liste filtresi (branch boş ise JWT’den alınır).</summary>
+    /// <summary>Liste filtresi (branch boş ise JWT'den alınır).</summary>
     public sealed record StockFilter(
         int Page = 1,
         int PageSize = 20,
@@ -74,4 +92,16 @@ namespace KuyumStokApi.Application.DTOs.Stocks
         DateTime? UpdatedFromUtc = null,
         DateTime? UpdatedToUtc = null
     );
+
+    /// <summary>Favori/Top seller ürün DTO.</summary>
+    public sealed class FavoriteProductDto
+    {
+        public int VariantId { get; set; }
+        public string? VariantName { get; set; }
+        public string? Ayar { get; set; }
+        public string? Color { get; set; }
+        public string? Brand { get; set; }
+        public int TotalSoldQty { get; set; }
+        public bool IsFavorite { get; set; }
+    }
 }

@@ -13,6 +13,7 @@ namespace KuyumStokApi.Application.DTOs.Customers
         public string Name { get; set; } = default!;
         public string? Phone { get; set; }
         public string? Note { get; set; }
+        public string? NationalId { get; set; }
         public DateTime? CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
         public bool IsActive { get; set; }
@@ -24,6 +25,7 @@ namespace KuyumStokApi.Application.DTOs.Customers
         public string Name { get; set; } = default!;
         public string? Phone { get; set; }
         public string? Note { get; set; }
+        public string? NationalId { get; set; }
     }
 
     /// <summary>Müşteri güncelleme talebi.</summary>
@@ -32,6 +34,7 @@ namespace KuyumStokApi.Application.DTOs.Customers
         public string Name { get; set; } = default!;
         public string? Phone { get; set; }
         public string? Note { get; set; }
+        public string? NationalId { get; set; }
         public bool IsActive { get; set; } = true;
     }
 

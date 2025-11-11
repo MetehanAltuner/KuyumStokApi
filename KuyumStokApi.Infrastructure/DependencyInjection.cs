@@ -25,6 +25,8 @@ using KuyumStokApi.Infrastructure.Services.LifecycleActionsService;
 using KuyumStokApi.Infrastructure.Services.ProductLifecycleService;
 using KuyumStokApi.Infrastructure.Services.StoresService;
 using KuyumStokApi.Infrastructure.Services.PurchasesService;
+using KuyumStokApi.Infrastructure.Services.ThermalPrintersService;
+using KuyumStokApi.Infrastructure.Services.ReportsService;
 
 namespace KuyumStokApi.Infrastructure
 {
@@ -64,6 +66,8 @@ namespace KuyumStokApi.Infrastructure
             services.AddScoped<ILimitsService, LimitsService>();
             services.AddScoped<ILifecycleActionsService, LifecycleActionsService>();
             services.AddScoped<IProductLifecyclesService, ProductLifecyclesService>();
+            services.AddScoped<IThermalPrintersService, ThermalPrintersService>();
+            services.AddScoped<IReportsService, ReportsService>();
 
             return services;
         }

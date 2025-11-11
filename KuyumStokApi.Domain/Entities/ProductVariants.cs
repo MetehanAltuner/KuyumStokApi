@@ -29,6 +29,8 @@ public partial class ProductVariants
 
     public string? Color { get; set; }
 
+    public bool IsFavorite { get; set; }
+
     public virtual ICollection<Limits> Limits { get; set; } = new List<Limits>();
 
     public virtual ProductTypes? ProductType { get; set; }

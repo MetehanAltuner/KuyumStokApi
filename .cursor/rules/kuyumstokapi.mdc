@@ -1,0 +1,239 @@
+## KuyumStokApi Genel Hatırlatma
+
+- **Katmanlar**: `API` (controller ve middleware), `Application` (DTO + servis kontratları), `Domain` (entity & ortak arayüz), `Infrastructure` (servis implementasyonları + güvenlik), `Persistence` (EF Core DbContext, migrations, seed).
+- **Temel Akışlar**: Alış (`Purchases` → stok oluşturma/arttırma), Satış (`Sales` → stok düşme + POS komisyonu), Lifecycle kayıtları (her stok hareketi için `ProductLifecycles`), Limit kontrolü (`Limits`).
+- **Kimlik Doğrulama**: JWT (HS256, `JwtService` içinde `JwtOptions` nested class), parola hashleme (`PasswordHasher`, SHA-256 + salt + pepper + iteration).
+- **Soft Delete**: Çoğu entity `IsDeleted`, `DeletedAt`, `DeletedBy` içeriyor; servisler çoğunlukla soft delete yapıyor.
+- **Standart Yanıt**: `ApiResult<T>` + `PagedResult<TItem>` (Application/Common).
+- **Önemli Nested Yapılar**: DTO dosyalarında `Brief` ve `Block` sınıfları; `JwtOptions` nested; `PasswordCheckRequestDto.cs` içinde üç ayrı sınıf var.
+- **Referans Doküman**: `PROJE_DOKUMANTASYONU.md` proje genelini ve entity ilişkilerini ayrıntılı açıklıyor; inceleme sırasında bu dosyayı ana rehber olarak kullan.
+
+## Sistematik İnceleme Planı (Tam Kapsam İçin)
+
+1. `KuyumStokApi.Domain`:
+   - `Entities` altındaki her sınıfın tüm property/navigation yapılarını çıkar.
+   - `Common` ve `Partials` klasörlerinde soft delete & aktivasyon mixinlerini kaydet.
+2. `KuyumStokApi.Persistence`:
+   - `AppDbContext` tüm `DbSet` tanımları, `OnModelCreating` Fluent API konfigurasyonları, partial dosyalardaki helper metodlar.
+   - `Migrations` dosyaları ile tablo şemalarını doğrula; kritik constraint ve indexleri listele.
+3. `KuyumStokApi.Application`:
+   - `DTOs` klasörünü klasör klasör gez; her DTO sınıfı, nested class ve record için alan listesini oluştur.
+   - `Interfaces` altındaki servis kontratlarını (method imzaları, cancellation token kullanımı) katalogla.
+   - `Common` yapıları (`ApiResult`, `EfQueryExtensions`, `ICurrentUserService`) için özet çıkar.
+4. `KuyumStokApi.Infrastructure`:
+   - Her servis implementasyonunu (BanksService, StocksService, SalesService, vb.) inceleyip metod bazında iş kurallarını yaz.
+   - `Auth`, `Security`, `PasswordHasher` altındaki yardımcı sınıfların field ve metodlarını kaydet.
+   - `DependencyInjection` konfigürasyonunu doğrula (hangi interface hangi implementasyona bağlanıyor).
+5. `KuyumStokApi.Persistence/Seed` ve `Extensions`:
+   - Seed senaryoları, başlangıç verileri, extension metodlarının davranışları.
+6. `KuyumStokApi.API`:
+   - Controller’ları endpoint bazında incele (route, HTTP method, yetkilendirme, kullanılan servisler).
+   - `Program.cs` pipeline ve DI kayıtlarını not al.
+
+## İnceleme Çıktısı İçin Notlar
+
+- Her dosya için: `namespace`, sınıf adı, property/metod imzaları, kullanılan pattern (async, transaction, validation), özel attribute’lar.
+- Tespit edilen iş kuralları, doğrulama adımları, hata mesajları ve exception kullanımını özetle.
+- EF Core konfigürasyonlarında: tablo adı, kolon tipleri, default değerler, indexler, ilişki türleri, OnDelete davranışları.
+- Servislerde: kullanılan DTO → Entity eşleştirmeleri, kullanılan extension/helper metodları, `ICurrentUserContext` veya `ICurrentUserService` bağımlılıkları.
+- Controller → servis eşleşmeleri ve dönüş tipleri (`ApiResult`, `IActionResult`, vb.) ile HTTP status kodlarını kaydet.
+
+## Süreç Yönetimi
+
+- İncelemeyi katman katman yap; her adım tamamlandığında `.cursor/rules/kuyumstokapi.mdc` dosyasını genişlet.
+- Büyük dosyalar (`AppDbContext.cs` gibi) için bölüm bölüm ilerle; her bölümün çıktısını net başlıklarla ekle.
+- İnceleme ilerledikçe tamamlanan klasörleri işaretle, eksik kalan yerler için TODO ekle.
+- Kritik bulguları (karmaşık transaction, concurrency kontrolü, TODO/not implemented) ayrıca listele.
+
+## Domain Katmanı İncelemesi (Tamamlandı)
+
+- **Common**: `ISoftDeletable` (IsDeleted, DeletedAt, DeletedBy) ve `IActivatable` (IsActive) arayüzleri; `Entities/SoftDeleteAndActivation.Partials.cs` dosyasında kategori, tip, varyant, mağaza, şube, rol, banka, müşteri, ödeme yöntemi ve kullanıcı sınıflarına bu arayüzler partial olarak ekleniyor.
+- **Banks**: Id, Name, Description, UpdatedAt, soft-delete alanları, `IsActive`; navigasyon `BankTransactions`.
+- **BankTransactions**: SaleId, BankId, CommissionRate, ExpectedAmount, Status, CreatedAt/UpdatedAt; navigasyon `Bank` ve `Sale`.
+- **Branches**: StoreId, Name, Address, CreatedAt/UpdatedAt, soft-delete + `IsActive`; navigation koleksiyonları `Limits`, `Purchases`, `Sales`, `Stocks`, `Users`, ayrıca `Store`.
+- **Customers**: Name, Phone, Note, NationalId, CreatedAt/UpdatedAt, soft-delete + `IsActive`; navigation `Purchases`, `Sales`.
+- **LifecycleActions**: Id, Name, Description; navigation `ProductLifecycles`.
+- **Limits**: BranchId, ProductVariantId, MinThreshold, MaxThreshold, CreatedAt/UpdatedAt; navigation `Branch`, `ProductVariant`.
+- **PaymentMethods**: Name + soft-delete alanları, `IsActive`; navigation `Purchases`, `Sales`.
+- **ProductCategories**: Name, CreatedAt/UpdatedAt, soft-delete + `IsActive`; navigation `ProductTypes`.
+- **ProductTypes**: Name, CategoryId, CreatedAt/UpdatedAt, soft-delete + `IsActive`; navigation `Category`, `ProductVariants`.
+- **ProductVariants**: ProductTypeId, Ayar, Brand, Name, Color, CreatedAt/UpdatedAt, soft-delete + `IsActive`, `IsFavorite`; navigation `Limits`, `ProductType`, `Stocks`.
+- **ProductLifecycles**: StockId, UserId, ActionId, Notes, Timestamp, UpdatedAt; navigation `Action`, `Stock`, `User`.
+- **Purchases**: UserId, BranchId, CustomerId, PaymentMethodId, CreatedAt/UpdatedAt; navigation `Branch`, `Customer`, `PaymentMethod`, `PurchaseDetails`, `User`.
+- **PurchaseDetails**: PurchaseId, StockId, Quantity, PurchasePrice, UpdatedAt; navigation `Purchase`, `Stock`.
+- **Roles**: Name, CreatedAt/UpdatedAt, soft-delete + `IsActive`; navigation `Users`.
+- **SaleDetails**: SaleId, StockId, Quantity, SoldPrice, UpdatedAt; navigation `Sale`, `Stock`.
+- **SalePayments**: Çoklu ödeme desteği; SaleId, PaymentMethodId, Amount, BankId, CommissionRate, NetAmount, CreatedAt/UpdatedAt; navigation `Sale`, `PaymentMethod`, `Bank`.
+- **Sales**: UserId, BranchId, CustomerId, PaymentMethodId, CreatedAt/UpdatedAt; navigation `BankTransactions`, `Branch`, `Customer`, `PaymentMethod`, `SaleDetails`, `SalePayments`, `User`.
+- **Stocks**: ProductVariantId, BranchId, Quantity, Barcode, QrCode, CreatedAt/UpdatedAt, gramaj ve fiziksel alanlar (Gram, Thickness, Width, StoneType, Carat, Milyem, Color); navigation `Branch`, `ProductVariant`, `ProductLifecycles`, `PurchaseDetails`, `SaleDetails`.
+- **Stores**: Name, CreatedAt/UpdatedAt, soft-delete + `IsActive`; navigation `Branches`.
+- **Users**: Username, PasswordHash/Salt, FirstName, LastName, RoleId, BranchId, CreatedAt/UpdatedAt, `IsActive`, soft-delete alanları; navigation `Branch`, `Role`, koleksiyonlar `ProductLifecycles`, `Purchases`, `Sales`.
+- **ThermalPrinters** (yeni): BranchId, Name, IpAddress, Port, Description, CreatedAt/UpdatedAt, soft-delete alanları, `IsActive`; navigation `Branch`.
+
+## Persistence Katmanı İncelemesi (Tamamlandı)
+
+- **AppDbContext (Ana)**:
+  - DbSet'ler: tüm domain entity'leri (`BankTransactions`, `Banks`, `Branches`, `Customers`, `LifecycleActions`, `Limits`, `PaymentMethods`, `ProductCategories`, `ProductLifecycles`, `ProductTypes`, `ProductVariants`, `PurchaseDetails`, `Purchases`, `Roles`, `SaleDetails`, `SalePayments`, `Sales`, `Stocks`, `Stores`, `ThermalPrinters`, `Users`).
+  - `OnModelCreating`:
+    - Tüm tablolar snake_case isimleriyle (`ToTable("banks")` vb.).
+    - Default değerler: `CreatedAt`/`UpdatedAt` için `CURRENT_TIMESTAMP`; `IsActive` true, `IsDeleted` false; `PasswordSalt` default boş string.
+    - İndeksler/benzersizlikler: `users_username_key`, `stocks_barcode_key`, `uq_product_variants_type_name_brand_ayar_color`, `ux_customers_national_id`.
+    - İlişkiler: her entity için yabancı anahtarlar (ör. `ProductVariants.ProductTypeId`, `Stocks.BranchId`, `Sales.UserId`, `SalePayments.BankId`).
+    - `SalePayments` tablo/kolon adları snake_case; default timestamp değerleri.
+    - `ThermalPrinters`: `thermal_printers` tablosu, branch unique index (`uq_thermal_printers_branch`, NULL branch hariç), `ip_address` + `port`, default timestamp ve `IsActive/IsDeleted` varsayılanları; `Branch` ilişkisi.
+  - `OnModelCreatingPartial` çağrısı alt partial dosyada dolduruluyor.
+- **AppDbContext.CurrentUser partial**: opsiyonel `ICurrentUserService` bağımlılığı enjeksiyon ctor parametresi ile tutuluyor (`_currentUser`).
+- **AppDbContext.Partials**:
+  - `OnModelCreatingPartial` tüm `ISoftDeletable` entity'lere global query filter (`IsDeleted == false`) ekliyor.
+  - `SaveChanges`/`SaveChangesAsync` override → `ApplySoftDelete()` çağrısı; `EntityState.Deleted` olan soft deletable entity'leri modified yapıp `IsDeleted=true`, `DeletedAt=UtcNow`, `DeletedBy = current user`.
+- **DependencyInjection.AddPersistence**: `services.AddDbContext<AppDbContext>(opt => opt.UseNpgsql(cfg.GetConnectionString("DefaultConnection")));`.
+- **Extensions/DbInitExtensions**:
+  - `MigrateAndSeedAsync(IHost)` → scope açar, `SKIP_DB_MIGRATE` env değişkeni true ise işlemi atlar.
+  - Migration var ise `GetPendingMigrationsAsync` sonrası `Database.MigrateAsync()`; yoksa `EnsureCreatedAsync()` fallback (geliştirme uyarılarıyla).
+  - Her adımı `ILogger<AppDbContext>` ile detaylı loglar; sonrasında `SeedData.SeedAsync`.
+- **Seed/SeedData**:
+  - Transaction ile çalışır (`BeginTransactionAsync`).
+  - `SeedRolesAsync` → Admin/Manager/Cashier/Viewer rollerini upsert (IsActive true, IsDeleted false, UpdatedAt now).
+  - `SeedPaymentMethodsAsync` → "Nakit", "Kredi Kartı", "Havale/EFT".
+  - `SeedLifecycleActionsAsync` → Purchase/Sale/Transfer/Count/Adjustment/Damage/Lost.
+  - Hata durumunda rollback, rethrow.
+- **Migrations**:
+  - `20251109144018_InitialCreate` → tüm temel tablolar ve ilişkiler; unique index'ler (`users.username`, `stocks.barcode`), defaults (`CURRENT_TIMESTAMP`), bool default değerleri, FK'ler; limits, purchases, sales, product_lifecycles vb. oluşturur.
+  - `20251109151523_AddSalePaymentsAndMultiPaymentSupport` → içerik boş (placeholder; gerçek değişiklikler sonraki migration'da uygulanmış).
+  - `20251109161544_AddSalePaymentsTable` → `SalePayments` tablosunu snake_case'e çevirir, timestamp default'larını ekler, FK isimlerini günceller.
+  - `20251110071139_UnifiedReceiptAndFavorites` → `stocks.color`, `product_variants.is_favorite` (default false) kolonlarını ekler; `customers.national_id` (varchar(11)) + unique index.
+  - `AppDbContextModelSnapshot` güncel şemayı yansıtır (9.0.10 EF sürümü, tüm default değer ve ilişki ayarları).
+
+## Application Katmanı İncelemesi (Tamamlandı)
+
+- **Common**:
+  - `ApiResult<T>`: Success/Message/Errors/Data/StatusCode/Timestamp/TraceId; statik `Ok` ve `Fail` fabrikaları.
+  - `PagedResult<TItem>`: Items/Page/PageSize/TotalCount.
+  - `EfQueryExtensions`: `WithDeleted()` (IgnoreQueryFilters), `OnlyActive()` (`IActivatable.IsActive` true).
+  - `ICurrentUserService`: UserId/UserName/IsAuthenticated (typo'lu dosya adı).
+- **Auth DTO'ları**: `LoginDto`, `RegisterDto`, `AuthResponseDto`; `PasswordCheckRequestDto`, `PasswordCheckResultDto`, `RegisterValidationResultDto`.
+- **Banka DTO'ları** (`BankDto.cs`): `BankCreateDto`, `BankUpdateDto`, `BankDto`, `BankFilter` (Page/PageSize/Query/IsActive/IncludeDeleted/Updated range).
+- **Branch DTO'ları**: `BranchDto` (nested `StoreBrief`), `BranchCreateDto`, `BranchUpdateDto`, `BranchFilter`.
+- **Customer DTO'ları**: `CustomerDto`, `CustomerCreateDto`, `CustomerUpdateDto`, `CustomerFilter` (Query/OnlyActive/Date range/Page info).
+- **LifecycleActions DTO'ları**: `LifecycleActionDto`, `LifecycleActionCreateDto`, `LifecycleActionUpdateDto`, `LifecycleActionFilter`.
+- **Limit DTO'ları**: `LimitDto` (BranchName/VariantLabel özetleri dahil), `LimitCreateDto`, `LimitUpdateDto`, `LimitFilter`.
+- **PaymentMethods DTO'ları**: `PaymentMethodDto`, `PaymentMethodCreateDto`, `PaymentMethodUpdateDto`, `PaymentMethodFilter`.
+- **ProductCategory DTO'ları**: `ProductCategoryDto`, `ProductCategoryCreateDto`, `ProductCategoryUpdateDto`, `ProductCategoryFilter` record.
+- **ProductLifecycle DTO'ları**: `ProductLifecycleDto` (ActionName/UserName/StockBarcode/BranchId/ProductVariantId overlay alanları), `ProductLifecycleCreateDto` (Timestamp optional), `ProductLifecycleFilter`.
+- **ProductType DTO'ları**: `ProductTypeDto` (nested `CategoryBrief`), `ProductTypeCreateDto`, `ProductTypeUpdateDto`, `ProductTypeFilter`.
+- **ProductVariant DTO'ları** (`ProductVariantDto.cs`):
+  - İç içe namespace (`KuyumStokApi.Application.DTOs.ProductVariants`) barındırıyor.
+  - `ProductVariantDto` (nested `ProductTypeBrief`, `IsFavorite` alanı).
+  - `ProductVariantCreateDto` / `UpdateDto` (IsFavorite bool dahil).
+  - `ProductVariantFilter` record (Page/PageSize/Query/ProductTypeId/IsActive/IncludeDeleted/Updated range).
+- **Purchase DTO'ları**: `PurchaseItemDto`, `PurchaseCreateDto`, `PurchaseResultDto`, `PurchaseFilter`, `PurchaseListDto`, `PurchaseDetailLineDto`, `PurchaseDetailDto`.
+- **Receipts DTO'ları**: `ReceiptMode` enum; `UnifiedReceiptSaleItem` (yalnızca `StockId`, `Quantity`, `SoldPrice`); `UnifiedReceiptPurchaseItem` (varyant, şube, opsiyonel barkod, `Quantity`, `PurchasePrice`, `GenerateQrCode` + opsiyonel fiziksel alanlar); `UnifiedReceiptCreateDto` (Mode/UserId/BranchId/Customer info/çoklu ödeme); `UnifiedReceiptResultDto`.
+- **Role DTO'ları**: `RoleDto`, `RoleCreateDto`, `RoleUpdateDto`.
+- **Sales DTO'ları**: `SaleItemDto`, `SaleCreateDto` (Cash/EFT/POS alanları, POS bank/komisyon), `SaleResultDto`, `SaleFilter`, `SaleListDto`, `SaleLineDetailDto`.
+- **Stock DTO'ları**:
+  - `StockDto` (nested `VariantBrief` ve `BranchBrief`, `TotalWeight` hesap alanı).
+  - `StockCreateDto` / `StockUpdateDto` (fiziksel alanlar dahil).
+  - `StockFilter` record (Query, BranchId, ProductTypeId, ProductVariantId, Gram aralıkları, Updated aralığı).
+  - `FavoriteProductDto`.
+  - `StockVariantDetailByStoreDto` (nested `BranchBlock`, `StockChip`).
+- **Reports DTO'ları**: `ReportDateRange`, `ReportTrendGranularity` enum, `MetricItemDto`, `TrendPointDto`, rapor modelleri (`StoreOverviewReportDto`, `BranchOverviewReportDto`, `UserPerformanceReportDto`, `SalesTrendReportDto`).
+- **Store DTO'ları**: `StoreDto` (BranchCount alanı), `StoreCreateDto`, `StoreUpdateDto`, `StoreFilter`.
+- **Auth Interfaces**:
+  - `ICurrentUserContext`: IsAuthenticated/UserId/BranchId/UserName.
+  - `CurrentUserContext` implementation: `IHttpContextAccessor`, claim okuma fallback'leri (`userId`, `sub`, `branch`, `branch_id`, `preferred_username` vb.).
+- **Servis Interface'leri** (tam liste):
+  - `IBanksService`: CRUD + sayfalama + soft delete + aktiflik.
+  - `IBranchesService`: CRUD + hard delete + set active.
+  - `ICustomersService`: sayfalama, CRUD, delete.
+  - `IJwtService`: `GenerateToken(Users)`.
+  - `ILifecycleActionsService`: sayfalama, CRUD, delete.
+  - `ILimitsService`: sayfalama, CRUD, delete.
+  - `IPasswordHasher`: `GenerateSalt`, `Hash`, `Verify`.
+  - `IPaymentMethodsService`: sayfalama, CRUD, delete.
+  - `IProductCategoryService`: sayfalama, CRUD, set active, hard delete.
+  - `IProductLifecyclesService`: sayfalama, `GetById`, `Create`.
+  - `IProductTypeService`: sayfalama, CRUD, set active, hard delete.
+  - `IProductVariantService`: sayfalama, CRUD, set active, hard delete (namespace import hatasıyla tanımlı).
+  - `IPurchasesService`: `CreateAsync`, paged list, detail by id.
+  - `IRolesService`: tüm roller, `GetById`, `Create`, `Update`, `Delete`.
+  - `ISalesService`: `CreateUnifiedAsync` (UnifiedReceipt), sayfalı liste, satır detayı.
+  - `IStocksService`: paged liste, varyant detay, `GetById`, `GetByBarcode`, CRUD, hard delete, favori ürünler.
+  - `IStoresService`: sayfalama, CRUD, set active, hard delete.
+  - `IThermalPrintersService`: paged liste, `GetById`, `Create`, `Update`, `Delete`, `HardDelete`.
+  - `IUserService`: `LoginAsync`, `RegisterAsync`, `UserExistsAsync`, `ValidatePasswordAsync`, `ValidateRegisterAsync`.
+  - `IReportsService`: rol bazlı erişimle mağaza/şube/kullanıcı raporları ve satış trendi.
+
+## Infrastructure Katmanı İncelemesi (Tamamlandı)
+
+- **DependencyInjection**:
+  - `AddInfrastructure` → `JwtOptions` ve `PasswordOptions` için options binding + validation.
+  - Service registrations: `JwtService`, `PasswordHasher`, `UserService`, tüm domain servis implementasyonları (`BanksService`, `ProductCategoryService`, `ProductTypeService`, `ProductVariantService`, `StocksService`, `BranchesService`, `StoresService`, `CustomersService`, `PaymentMethodsService`, `PurchasesService`, `SalesService`, `RolesService`, `LimitsService`, `LifecycleActionsService`, `ProductLifecyclesService`, `ThermalPrintersService`, `ReportsService`); `ICurrentUserService` (Auth) + `IHttpContextAccessor`.
+- **Auth**:
+  - `CurrentUserService` (Infrastructure) → `ICurrentUserService` için `IHttpContextAccessor` ile JWT claim okuma (`UserId`, `UserName`, `IsAuthenticated`).
+  - `PasswordOptions` → `Iterations` (1k-1M) default 100k, `Pepper` string.
+- **PasswordHasher**:
+  - `GenerateSalt(int size=16)` → RNG fill + Base64.
+  - `Hash(password, saltBase64)` → `salt || password || pepper`, SHA-256 iterasyon `_opt.Iterations`, Base64 output.
+  - `Verify` → `Hash` + constant-time `FixedTimeEquals`.
+- **Security.PasswordPolicy**:
+  - `PasswordValidationResult` (Errors list, Score 0-4).
+  - `PasswordPolicy` static; blocklist (yaygın şifreler), min length 10, regexler (lower/upper/digit/symbol), tekrar/ardışık kontrol (4+), PII kontrol (username/ad/soyad), username regex `[a-zA-Z0-9._-]{3,32}`.
+  - `ValidateUsername` / `EnsureValidUsername`; `Validate` (returns result) ve `EnsureStrong` (throws); helper `HasRepeatedChars`, `HasSequentialRun`.
+- **Services** (Özet):
+  - `BanksService`: paged list (filter: query, isActive, updated range, includeDeleted), `GetById`, `Create`, `Update`, `Delete` (soft), `HardDelete` (ExecuteDelete), `SetActive`.
+  - `BranchesService`: paged list (store, active filters), `Create` (returns detail), `Update`, `Delete` (guards: users/stocks/sales/purchases), `HardDelete`, `SetActive`, `GetById`.
+  - `CustomersService`: paged query (OnlyActive, query, date filters), `Create`, `Update`, `Delete` (if referenced: mark deleted; else remove).
+  - `JwtService`: base64 key decode, builds HS256 credentials, optional `kid` header, `BuildClaims` yields `sub`, `jti`, `unique_name`, `given_name`, `surname`, `role_id`, `branch_id`, `is_active`.
+  - `LifecycleActionsService`: paged search, CRUD (simple).
+  - `LimitsService`: paged filter by branch/variant, `Create`, `Update`, `Delete`, `GetById`.
+  - `PaymentMethodsService`: paged, `Create`, `Update`, `Delete` (soft if referenced by sales/purchases).
+  - `ProductCategoryService`: paged, `Create` (duplicate guard), `Update`, `Delete` (soft), `HardDelete`, `SetActive`, `GetById`.
+  - `ProductLifecyclesService`: paged filter (stock/action/user/time), `GetById`, `Create` (requires stock & action, uses `ICurrentUserService` for user id).
+  - `ProductTypeService` (directory `ProductTypService`): paged filter (category/active/date), `Create` (duplicate guard), `Update` (duplicate guard), `Delete` (checks variants), `HardDelete`, `SetActive`, `GetById`.
+  - `ProductVariantService`: paged search (includeDeleted, query on name/brand/ayar/color), `Create` (unique composite guard), `Update`, `Delete` (checks stocks/limits), `HardDelete`, `SetActive`, `GetById`.
+  - `PurchasesService`: transaction create; loops items: create/merge stock, add `PurchaseDetails`, add lifecycle "Purchase"; paged join (branch/user/customer/payment) with totals; `GetById` returns header + lines.
+  - `RolesService`: list, get, create (duplicate guard), update (duplicate guard), delete.
+  - `SalesService`: birleşik fiş akışı (`CreateUnifiedAsync`); müşteri upsert, satış kalemlerinde yalnızca `StockId + Quantity + SoldPrice` ile stok düşer (yetersiz stokta hata -> 400 ApiResult), alış kalemleri zorunlu `ProductVariantId + BranchId + Quantity + PurchasePrice` ve opsiyonel barkod ile stok oluşturur; `GenerateQrCode` true ise yeni stok için QR üretimi tetikler; tek transaction, lifecycle kayıtları ve çoklu ödeme; ayrıca `GetPagedAsync`, `GetLineByIdAsync`.
+  - `StocksService`: paged list filtered by branch (from filter or current user), includes product variant/type/category info; `GetVariantDetailInStoreAsync` aggregates variant across store; `GetById`, `GetByBarcode`; `Create` merge ederken quantity artırır, yeni stokta barkod boşsa otomatik benzersiz üretir ve istenirse stok JSON'unu base64 olarak `QrCode` alanına yazar (QR payload tek adetlik bilgi içerir, merge sırasında yeniden oluşturulmaz); `Update`, `Delete` (guards referenced records), `HardDelete`; `GetFavoritesAsync` (top sold variants).
+  - `StoresService`: paged (include deleted, active filters) with branch count; `Create`, `Update`, `Delete` (guard branches), `HardDelete`, `SetActive`, `GetById`.
+  - `ThermalPrintersService`: branch başına tek yazıcı kuralı, paged list, detail, create/update/delete/hard delete; IP/port ve branch doğrulaması yapıyor.
+  - `UserService`: username normalization/lowercase; `RegisterAsync` validates username (PasswordPolicy), ensures unique & valid role/branch, hashes password (salt/pepper), stores `Users`; `LoginAsync` verifies, returns JWT; `UserExistsAsync`; `ValidatePasswordAsync` / `ValidateRegisterAsync` returning `ApiResult`.
+  - `ReportsService`: mevcut kullanıcının rolüne göre erişim kapsamı çözümlenir; mağaza genel bakışı, şube performansı, kullanıcı performansı ve satış trendi için metrik/top list/trend verileri üretir (trend için günlük baz alınır, isteğe göre haftalık/aylık gruplama yapılır).
+
+## API Katmanı İncelemesi (Tamamlandı)
+
+- **Program.cs**:
+  - Base64 JWT key decode helper; registers Persistence, Infrastructure, `ICurrentUserContext`, controllers.
+  - JWT Bearer auth: validates issuer/audience/signing key, `ClockSkew=0`, logs auth events.
+  - Swagger: Bearer scheme (header expects raw token), includes XML docs from API/Application/Infrastructure.
+  - Pipeline: HTTPS redirection → authentication → authorization → controllers; `app.MigrateAndSeedAsync()` çağrısı `Run` öncesi.
+- **AuthController**:
+  - `POST /api/auth/register` → `IUserService.RegisterAsync`; on success returns Created with JWT.
+  - `POST /api/auth/login` → returns token or 401.
+  - `POST /api/auth/validate-password` & `/validate-register` (`AllowAnonymous`) → dönen `ApiResult`'in `StatusCode`’u ile `StatusCode(...)`.
+- **Genel CRUD Controller Şablonu** (Authorize):
+  - `Banks`, `Branches`, `Stores`, `ProductCategories`, `ProductTypes`, `ProductVariants`, `PaymentMethods`, `Limits`, `Roles` -> `GET` paged, `GET {id}`, `POST`, `PUT {id}`, `DELETE {id}`, bazıları için `/hard` ve `/active` endpoint'leri.
+  - Çoğu endpoint servis sonucu döndürüyor; bazı controller'larda (örn. `CustomersController`, `LifecycleActionsController`, `ProductLifecyclesController`, `PurchasesController`, `SalesController`) expression-bodied `StatusCode((await svc...).StatusCode, await svc...)` ile servisin aynı metodu iki kez çağrılıyor (potansiyel istenmeyen tekrar).
+- **CustomersController**:
+  - `GET` (paged), `GET {id}`, `POST`, `PUT`, `DELETE`; `Delete` ilişkiler varsa soft-delete'e izin veren servis mantığını kullanıyor.
+- **LifecycleActionsController & ProductLifecyclesController**:
+  - Basit `GET` paged/`GET {id}`/`POST`; double await pattern mevcut.
+- **PurchasesController**:
+  - `POST` alış fişi (stok artırır/fl transaction).
+  - `GET` paged başlık; `GET {id}` detay.
+- **SalesController**:
+  - `POST` birleşik fiş (satış + opsiyonel alış), `GET` paged satır listesi, `GET {id}` satır detayı (`GetLineByIdAsync`).
+- **StocksController**:
+  - `GET` paged (branch filter), `GET variant/{id}/detail`, `GET {id}`, `GET by-barcode/{barcode}`, `POST`, `PUT`, `DELETE`, `DELETE /hard`, `GET /favorites`.
+- **ThermalPrintersController**:
+  - `GET` paged, `GET {id}`, `POST`, `PUT`, `DELETE`, `DELETE /hard` (Authorize).
+- **ReportsController**:
+  - `GET /api/reports/store-overview` (tarih aralığı opsiyonel) → mağaza genel metrikleri.
+  - `GET /api/reports/branch-overview` → şube özel özet; `branchId` verilmezse mevcut kullanıcı şubesi.
+  - `GET /api/reports/user-performance` → kullanıcı bazlı metrik; yetkiye göre başka kullanıcılar.
+  - `GET /api/reports/sales-trend` → günlük/haftalık/aylık trend grafiği (`granularity` query paramı ile Daily/Weekly/Monthly).
+- **Program.cs HttpContext CurrentUser**: `Services.AddScoped<ICurrentUserContext, CurrentUserContext>()` (Application implementation injeksiyonu).
+- **Swagger Notu**: Açıklama token girerken `'Bearer '` yazma, sadece JWT gir.
+
+
+

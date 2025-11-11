@@ -13,8 +13,23 @@ namespace KuyumStokApi.Application.Interfaces.Auth
         private readonly IHttpContextAccessor _http;
         public CurrentUserContext(IHttpContextAccessor http) => _http = http;
 
+        public bool IsAuthenticated => _http.HttpContext?.User?.Identity?.IsAuthenticated ?? false;
+
         public int? UserId => ReadInt("userId", "sub", ClaimTypes.NameIdentifier);
+        
         public int? BranchId => ReadInt("branchId", "branch_id", "branch");
+
+        public string? UserName
+        {
+            get
+            {
+                var user = _http.HttpContext?.User;
+                return user?.Identity?.Name
+                    ?? user?.FindFirst(ClaimTypes.Name)?.Value
+                    ?? user?.FindFirst("preferred_username")?.Value
+                    ?? user?.FindFirst("name")?.Value;
+            }
+        }
 
         private int? ReadInt(params string[] keys)
         {

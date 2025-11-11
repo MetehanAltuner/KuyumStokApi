@@ -1,9 +1,10 @@
-# KUYUMSTOKAPI - KAPSAMLI PROJE DOKÜMANTASYONU
+# KUYUMSTOKAPI - EKSİKSİZ DETAYLI PROJE DOKÜMANTASYONU
 
-> **Tarih**: 9 Kasım 2025  
+> **Güncellenme Tarihi**: 9 Kasım 2025  
 > **Proje**: Kuyum (Kuyumcu) Stok Yönetim Sistemi API  
 > **Teknoloji**: ASP.NET Core 8.0 Web API, Entity Framework Core, PostgreSQL  
-> **Mimari**: Clean Architecture (Layered Architecture)
+> **Mimari**: Clean Architecture (Layered Architecture)  
+> **Kapsam**: Tüm entity'ler, nested class'lar, servisler, DTO'lar ve ilişkiler
 
 ---
 
@@ -1195,141 +1196,925 @@ DTO'lar, API ile client arasında veri alışverişi için kullanılan hafif ver
 - Validation attribute'ları içerir
 - Nested objeler ile ilişkili verileri birleştirir
 
-### 7.2 Örnek DTO'lar
+### 7.2 Tüm DTO'lar - Nested Class'lar Dahil
 
-#### StockDto
+#### 7.2.1 Stocks DTO Ailesi
+
+**Dosya**: `Application/DTOs/Stocks/StocksDto.cs`
+
+**İçerik**: 4 ana class + 2 nested class + 1 record
+
+1. **StockDto** (Liste görünümü)
+   - **Nested Class: VariantBrief** (Ürün varyant özet bilgisi)
+   - **Nested Class: BranchBrief** (Şube özet bilgisi)
+2. **StockCreateDto** (Yeni stok oluşturma)
+3. **StockUpdateDto** (Stok güncelleme)
+4. **StockFilter** (record - Filtreleme parametreleri)
+
 ```csharp
-public class StockDto
+// Application/DTOs/Stocks/StocksDto.cs
+
+public sealed class StockDto
 {
     public int Id { get; set; }
+    public VariantBrief? ProductVariant { get; set; }
+    public BranchBrief? Branch { get; set; }
     public int? Quantity { get; set; }
-    public string Barcode { get; set; }
+    public string Barcode { get; set; } = null!;
     public string? QrCode { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
-    public decimal TotalWeight { get; set; } // Calculated: Gram × Quantity
+    public decimal TotalWeight { get; set; } // Hesaplanan: Gram × Adet
     
-    public BranchBrief? Branch { get; set; }
-    public VariantBrief? ProductVariant { get; set; }
-    
-    public class BranchBrief
+    // NESTED CLASS 1
+    public sealed class VariantBrief
     {
         public int? Id { get; set; }
-        public string? Name { get; set; }
-    }
-    
-    public class VariantBrief
-    {
-        public int? Id { get; set; }
-        public string? Name { get; set; }
+        public string? Name { get; set; }        // Model (Ajda Bilezik)
         public string? Ayar { get; set; }
         public string? Color { get; set; }
         public string? Brand { get; set; }
-        public decimal? Gram { get; set; }
+        public decimal? Gram { get; set; }       // Stocks.Gram
         public int? ProductTypeId { get; set; }
-        public string? ProductTypeName { get; set; }
-        public string? CategoryName { get; set; }
+        public string? ProductTypeName { get; set; }  // Tür (bilezik, yüzük)
+        public string? CategoryName { get; set; }     // Kategori (Altın, Gümüş)
+    }
+    
+    // NESTED CLASS 2
+    public sealed class BranchBrief
+    {
+        public int? Id { get; set; }
+        public string? Name { get; set; }
     }
 }
-```
 
-#### SaleCreateDto
-```csharp
-public class SaleCreateDto
+public sealed class StockCreateDto
 {
-    public int BranchId { get; set; }
-    public int? UserId { get; set; }
-    public int? CustomerId { get; set; }
-    
-    // Inline customer creation
-    public string? CustomerName { get; set; }
-    public string? CustomerPhone { get; set; }
-    public string? CustomerNationalId { get; set; }
-    
-    public int? PaymentMethodId { get; set; }
-    
-    // Optional POS transaction
-    public int? BankId { get; set; }
-    public decimal? CommissionRate { get; set; }
-    public decimal? ExpectedAmount { get; set; }
-    
-    public List<SaleItemDto> Items { get; set; }
+    public int? ProductVariantId { get; set; }
+    public int? BranchId { get; set; }
+    public int Quantity { get; set; }
+    public decimal Weight { get; set; }
+    public string Barcode { get; set; } = null!;
+    public string? QrCode { get; set; }
 }
 
-public class SaleItemDto
+public sealed class StockUpdateDto
 {
-    public int StockId { get; set; }
-    public int Quantity { get; set; }
-    public decimal? SoldPrice { get; set; }
+    public int? ProductVariantId { get; set; }
+    public int? BranchId { get; set; }
+    public int? Quantity { get; set; }
+    public string? Barcode { get; set; }
+    public string? QrCode { get; set; }
+}
+
+public sealed record StockFilter(
+    int Page = 1,
+    int PageSize = 20,
+    string? Query = null,           // barcode/qr/variant/brand/ayar/renk
+    int? BranchId = null,
+    int? ProductTypeId = null,
+    int? ProductVariantId = null,
+    decimal? GramMin = null,
+    decimal? GramMax = null,
+    DateTime? UpdatedFromUtc = null,
+    DateTime? UpdatedToUtc = null
+);
+```
+
+---
+
+**Dosya**: `Application/DTOs/Stocks/StockVariantDetailByStoreDto.cs`
+
+**İçerik**: 1 ana class + 2 nested class
+
+1. **StockVariantDetailByStoreDto** (Varyant bazlı, tüm şubelerde stok özeti)
+   - **Nested Class: BranchBlock** (Şube bazlı toplam)
+   - **Nested Class: StockChip** (Tek stok kartı)
+
+```csharp
+// Application/DTOs/Stocks/StockVariantDetailByStoreDto.cs
+
+public sealed class StockVariantDetailByStoreDto
+{
+    public int VariantId { get; set; }
+    public string VariantName { get; set; } = default!;
+    public string? Ayar { get; set; }
+    public string? Color { get; set; }
+    public List<BranchBlock> Branches { get; set; } = new();
+    
+    // NESTED CLASS 1
+    public sealed class BranchBlock
+    {
+        public int BranchId { get; set; }
+        public string BranchName { get; set; } = default!;
+        public int ToplamAdet { get; set; }
+        public decimal ToplamAgirlik { get; set; }
+        public List<StockChip> Items { get; set; } = new();
+    }
+    
+    // NESTED CLASS 2
+    public sealed class StockChip
+    {
+        public int StockId { get; set; }
+        public string Barcode { get; set; } = default!;
+        public decimal Gram { get; set; }
+        public string? Color { get; set; }
+    }
 }
 ```
 
 ---
 
-## 8. GÜVENLİK VE KİMLİK DOĞRULAMA
+#### 7.2.2 ProductVariant DTO Ailesi
 
-### 8.1 Parola Güvenliği
+**Dosya**: `Application/DTOs/ProductVariant/ProductVariantDto.cs`
 
-**Algoritma**: SHA-256 + Salt + Pepper + Iterations
+**İçerik**: 4 ana class + 1 nested class + 1 record
 
-**Adımlar**:
-1. **Salt Üretimi**: 16 byte random değer, Base64'e çevir
-2. **Pepper**: appsettings.json'da saklanan sabit değer
-3. **Hash Hesaplama**:
-   ```
-   Input = Salt + Password + Pepper
-   Hash = SHA-256(Input)
-   For i = 1 to Iterations:
-       Hash = SHA-256(Hash)
-   ```
-4. **Doğrulama**: Sabit zamanlı karşılaştırma (timing attack'a karşı)
+1. **ProductVariantDto** (Detay görünümü)
+   - **Nested Class: ProductTypeBrief** (Ürün türü ve kategori özeti)
+2. **ProductVariantCreateDto** (Yeni varyant oluşturma)
+3. **ProductVariantUpdateDto** (Varyant güncelleme)
+4. **ProductVariantFilter** (record - Filtreleme)
 
-**Parola Politikası**:
-- Minimum 8 karakter
-- En az 1 büyük harf
-- En az 1 küçük harf
-- En az 1 rakam
-- En az 1 özel karakter
-
-### 8.2 JWT Authentication
-
-**Token Yapısı**:
-- **Algorithm**: HS256 (HMAC-SHA256)
-- **Issuer**: KuyumStokApi
-- **Audience**: KuyumStokApiClients
-- **Expiration**: 24 saat (ayarlanabilir)
-- **Claims**: UserId, Username, Role, BranchId
-
-**Program.cs Yapılandırması**:
 ```csharp
-builder.Services
-    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+// Application/DTOs/ProductVariant/ProductVariantDto.cs
+
+public sealed class ProductVariantDto
+{
+    public int Id { get; set; }
+    public ProductTypeBrief? ProductType { get; set; }
+    public string Name { get; set; } = default!;
+    public string? Ayar { get; set; }
+    public string? Color { get; set; }
+    public string? Brand { get; set; }
+    public DateTime? CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public bool IsActive { get; set; }
+    public bool IsDeleted { get; set; }
+    
+    // NESTED CLASS
+    public sealed class ProductTypeBrief
     {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = cfg["Jwt:Issuer"],
-            ValidateAudience = true,
-            ValidAudience = cfg["Jwt:Audience"],
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.Zero
-        };
-    });
+        public int? Id { get; set; }
+        public string? Name { get; set; }
+        public int? CategoryId { get; set; }
+        public string? CategoryName { get; set; }  // Altın, Gümüş, Platin...
+    }
+}
+
+public sealed class ProductVariantCreateDto
+{
+    public int? ProductTypeId { get; set; }
+    public string Name { get; set; } = default!;
+    public string? Ayar { get; set; }
+    public string? Color { get; set; }
+    public string? Brand { get; set; }
+}
+
+public sealed class ProductVariantUpdateDto
+{
+    public int? ProductTypeId { get; set; }
+    public string Name { get; set; } = default!;
+    public string? Ayar { get; set; }
+    public string? Color { get; set; }
+    public string? Brand { get; set; }
+}
+
+public sealed record ProductVariantFilter(
+    int Page = 1,
+    int PageSize = 20,
+    string? Query = null,           // Name/Brand/Ayar/Color
+    int? ProductTypeId = null,
+    bool? IsActive = null,
+    bool IncludeDeleted = false,
+    DateTime? UpdatedFromUtc = null,
+    DateTime? UpdatedToUtc = null
+);
 ```
 
-### 8.3 CurrentUser Context
+---
 
-**ICurrentUserContext** interface'i ile aktif kullanıcı bilgilerine erişim:
+#### 7.2.3 ProductType DTO Ailesi
+
+**Dosya**: `Application/DTOs/ProductType/ProductTypeDto.cs`
+
+**İçerik**: 4 ana class + 1 nested class + 1 record
+
+1. **ProductTypeDto** (Detay görünümü)
+   - **Nested Class: CategoryBrief** (Kategori özeti)
+2. **ProductTypeCreateDto**
+3. **ProductTypeUpdateDto**
+4. **ProductTypeFilter** (record)
+
 ```csharp
+// Application/DTOs/ProductType/ProductTypeDto.cs
+
+public sealed class ProductTypeDto
+{
+    public int Id { get; set; }
+    public string? Name { get; set; }
+    public DateTime? CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public bool IsActive { get; set; }
+    public bool IsDeleted { get; set; }
+    public CategoryBrief? Category { get; set; }
+    
+    // NESTED CLASS
+    public sealed class CategoryBrief
+    {
+        public int? Id { get; set; }
+        public string? Name { get; set; }
+    }
+}
+
+public sealed class ProductTypeCreateDto
+{
+    public string Name { get; set; } = null!;
+    public int? CategoryId { get; set; }
+}
+
+public sealed class ProductTypeUpdateDto
+{
+    public string Name { get; set; } = null!;
+    public int? CategoryId { get; set; }
+}
+
+public sealed record ProductTypeFilter(
+    int Page = 1,
+    int PageSize = 20,
+    string? Query = null,
+    int? CategoryId = null,
+    bool? IsActive = null,
+    bool IncludeDeleted = false,
+    DateTime? UpdatedFromUtc = null,
+    DateTime? UpdatedToUtc = null
+);
+```
+
+---
+
+#### 7.2.4 Branches DTO Ailesi
+
+**Dosya**: `Application/DTOs/Branches/BranchDto.cs`
+
+**İçerik**: 4 ana class + 1 nested class + 1 record
+
+1. **BranchDto** (Detay görünümü)
+   - **Nested Class: StoreBrief** (Mağaza özeti)
+2. **BranchCreateDto**
+3. **BranchUpdateDto**
+4. **BranchFilter** (record)
+
+```csharp
+// Application/DTOs/Branches/BranchDto.cs
+
+public sealed class BranchDto
+{
+    public int Id { get; set; }
+    public string? Name { get; set; }
+    public string? Address { get; set; }
+    public StoreBrief? Store { get; set; }
+    public DateTime? CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public bool IsActive { get; set; }
+    public bool IsDeleted { get; set; }
+    
+    // NESTED CLASS
+    public sealed class StoreBrief
+    {
+        public int? Id { get; set; }
+        public string? Name { get; set; }
+    }
+}
+
+public sealed class BranchCreateDto
+{
+    public string Name { get; set; } = null!;
+    public string? Address { get; set; }
+    public int? StoreId { get; set; }
+}
+
+public sealed class BranchUpdateDto
+{
+    public string Name { get; set; } = null!;
+    public string? Address { get; set; }
+    public int? StoreId { get; set; }
+}
+
+public sealed record BranchFilter(
+    int Page = 1,
+    int PageSize = 20,
+    string? Query = null,        // name/address
+    int? StoreId = null,
+    bool? IsActive = null,
+    bool IncludeDeleted = false,
+    DateTime? UpdatedFromUtc = null,
+    DateTime? UpdatedToUtc = null
+);
+```
+
+---
+
+#### 7.2.5 Sales DTO Ailesi
+
+**Dosya**: `Application/DTOs/Sales/SaleItemDto.cs`
+
+**İçerik**: 6 ana class (nested yok)
+
+1. **SaleItemDto** (Satış kalemi)
+2. **SaleCreateDto** (Satış oluşturma)
+3. **SaleResultDto** (Oluşum sonucu)
+4. **SaleFilter** (Filtreleme)
+5. **SaleListDto** (Liste görünümü)
+6. **SaleLineDetailDto** (Detay görünümü)
+
+```csharp
+// Application/DTOs/Sales/SaleItemDto.cs
+
+public sealed class SaleItemDto
+{
+    public int StockId { get; set; }
+    public int Quantity { get; set; }
+    public decimal SoldPrice { get; set; }
+}
+
+public sealed class SaleCreateDto
+{
+    public int? UserId { get; set; }          // yoksa CurrentUser
+    public int BranchId { get; set; }
+    public int? CustomerId { get; set; }
+    public string? CustomerName { get; set; }
+    public string? CustomerPhone { get; set; }
+    public string? CustomerNationalId { get; set; }
+    public int? PaymentMethodId { get; set; }
+    public int? BankId { get; set; }          // POS ise
+    public decimal? CommissionRate { get; set; }
+    public decimal? ExpectedAmount { get; set; }
+    public List<SaleItemDto> Items { get; set; } = new();
+}
+
+public sealed class SaleResultDto
+{
+    public int Id { get; set; }
+    public DateTime? CreatedAt { get; set; }
+    public IReadOnlyList<int> StockIds { get; set; } = Array.Empty<int>();
+}
+
+public sealed class SaleFilter
+{
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 20;
+    public int? BranchId { get; init; }
+    public int? UserId { get; init; }
+    public int? CustomerId { get; init; }
+    public int? PaymentMethodId { get; init; }
+    public DateTime? FromUtc { get; init; }
+    public DateTime? ToUtc { get; init; }
+}
+
+public sealed class SaleListDto
+{
+    public int SaleId { get; init; }
+    public int LineId { get; init; }          // sale_details.id
+    public DateTime? CreatedAt { get; init; }
+    public int? BranchId { get; init; }
+    public string? BranchName { get; init; }
+    public int? UserId { get; init; }
+    public string? UserName { get; init; }
+    public int StockId { get; init; }
+    public string? ProductName { get; init; }
+    public string? Ayar { get; init; }
+    public string? Renk { get; init; }
+    public decimal? AgirlikGram { get; init; }
+    public int Quantity { get; init; }
+    public decimal? SoldPrice { get; init; }
+}
+
+public sealed class SaleLineDetailDto
+{
+    public int SaleId { get; init; }
+    public int LineId { get; init; }
+    public DateTime? CreatedAt { get; init; }
+    public string? PaymentMethod { get; init; }
+    public int StockId { get; init; }
+    public string? ProductName { get; init; }
+    public string? Ayar { get; init; }
+    public string? Renk { get; init; }
+    public decimal? AgirlikGram { get; init; }
+    public decimal? ListeFiyati { get; init; }
+    public decimal? SatisFiyati { get; init; }
+}
+```
+
+---
+
+#### 7.2.6 Purchase DTO Ailesi
+
+**Dosya**: `Application/DTOs/Purchase/PurchaseItemDto.cs`
+
+**İçerik**: 7 ana class (nested yok)
+
+1. **PurchaseItemDto** (Alış kalemi)
+2. **PurchaseCreateDto** (Alış oluşturma)
+3. **PurchaseResultDto** (Oluşum sonucu)
+4. **PurchaseFilter** (Filtreleme)
+5. **PurchaseListDto** (Liste görünümü)
+6. **PurchaseDetailLineDto** (Detay satırı)
+7. **PurchaseDetailDto** (Detay görünümü)
+
+```csharp
+// Application/DTOs/Purchase/PurchaseItemDto.cs
+
+public sealed class PurchaseItemDto
+{
+    public int ProductVariantId { get; set; }
+    public int BranchId { get; set; }
+    public string Barcode { get; set; } = default!;
+    public int Quantity { get; set; }
+    public decimal PurchasePrice { get; set; }
+}
+
+public sealed class PurchaseCreateDto
+{
+    public int UserId { get; set; }
+    public int BranchId { get; set; }
+    public int? CustomerId { get; set; }
+    public int? PaymentMethodId { get; set; }
+    public List<PurchaseItemDto> Items { get; set; } = new();
+}
+
+public sealed class PurchaseResultDto
+{
+    public int Id { get; set; }
+    public DateTime? CreatedAt { get; set; }
+    public IReadOnlyList<int> StockIds { get; set; } = Array.Empty<int>();
+}
+
+public sealed class PurchaseFilter
+{
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 20;
+    public int? BranchId { get; init; }
+    public int? UserId { get; init; }
+    public int? CustomerId { get; init; }
+    public int? PaymentMethodId { get; init; }
+    public DateTime? FromUtc { get; init; }
+    public DateTime? ToUtc { get; init; }
+}
+
+public sealed class PurchaseListDto
+{
+    public int Id { get; init; }
+    public DateTime? CreatedAt { get; init; }
+    public int? BranchId { get; init; }
+    public string? BranchName { get; init; }
+    public int? UserId { get; init; }
+    public string? UserName { get; init; }
+    public int? CustomerId { get; init; }
+    public string? CustomerName { get; init; }
+    public int? PaymentMethodId { get; init; }
+    public string? PaymentMethod { get; init; }
+    public decimal TotalAmount { get; init; }
+    public int ItemCount { get; init; }
+}
+
+public sealed class PurchaseDetailLineDto
+{
+    public int Id { get; init; }
+    public int StockId { get; init; }
+    public string? Barcode { get; init; }
+    public int Quantity { get; init; }
+    public decimal? PurchasePrice { get; init; }
+    public int? ProductVariantId { get; init; }
+    public string? VariantDisplay { get; init; }
+}
+
+public sealed class PurchaseDetailDto
+{
+    public int Id { get; init; }
+    public DateTime? CreatedAt { get; init; }
+    public int? BranchId { get; init; }
+    public string? BranchName { get; init; }
+    public int? UserId { get; init; }
+    public string? UserName { get; init; }
+    public int? CustomerId { get; init; }
+    public string? CustomerName { get; init; }
+    public int? PaymentMethodId { get; init; }
+    public string? PaymentMethod { get; init; }
+    public decimal TotalAmount { get; init; }
+    public int ItemCount { get; init; }
+    public IReadOnlyList<PurchaseDetailLineDto> Lines { get; init; } = Array.Empty<PurchaseDetailLineDto>();
+}
+```
+
+---
+
+#### 7.2.7 Auth DTO Ailesi
+
+**Dosya 1**: `Application/DTOs/Auth/LoginDto.cs`
+
+```csharp
+public class LoginDto
+{
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+}
+```
+
+**Dosya 2**: `Application/DTOs/Auth/RegisterDto.cs`
+
+```csharp
+public class RegisterDto
+{
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+    public string FirstName { get; set; } = string.Empty;
+    public string LastName { get; set; } = string.Empty;
+    public int? RoleId { get; set; }
+    public int? BranchId { get; set; }
+}
+```
+
+**Dosya 3**: `Application/DTOs/Auth/AuthResponseDto.cs`
+
+```csharp
+public class AuthResponseDto
+{
+    public string Token { get; set; } = string.Empty;
+    public DateTime Expiration { get; set; }
+}
+```
+
+**Dosya 4**: `Application/DTOs/Auth/PasswordCheckRequestDto.cs`
+
+**ÖNEMLİ**: Bu dosyada **3 ayrı class** var!
+
+```csharp
+// Application/DTOs/Auth/PasswordCheckRequestDto.cs
+
+// CLASS 1
+public sealed class PasswordCheckRequestDto
+{
+    public string Password { get; set; } = default!;
+    public string? Username { get; set; }
+    public string? FirstName { get; set; }
+    public string? LastName { get; set; }
+}
+
+// CLASS 2
+public sealed class PasswordCheckResultDto
+{
+    public bool IsValid { get; set; }
+    public int Score { get; set; }
+    public List<string> Errors { get; set; } = new();
+}
+
+// CLASS 3
+public sealed class RegisterValidationResultDto
+{
+    public bool IsValid { get; set; }
+    public int PasswordScore { get; set; }
+    public List<string> Errors { get; set; } = new();
+}
+```
+
+---
+
+#### 7.2.8 Diğer Basit DTO Aileleri
+
+**ProductCategory, Customers, PaymentMethods, Roles, Limits, LifecycleActions, ProductLifecycles, Banks, Stores** gibi entity'ler için DTO'lar standart CRUD deseni izler:
+- `{Entity}Dto` (Detay/Liste)
+- `{Entity}CreateDto`
+- `{Entity}UpdateDto`
+- `{Entity}Filter` (opsiyonel)
+
+**Nested class içermezler**, doğrudan property'lerden oluşurlar.
+
+---
+
+## 8. GÜVENLİK VE KİMLİK DOĞRULAMA - EKSİKSİZ DETAYLAR
+
+### 8.1 Parola Güvenliği - PasswordHasher ve PasswordOptions
+
+#### 8.1.1 PasswordHasher Class
+
+**Dosya**: `Infrastructure/PasswordHasher/PasswordHasher.cs`
+
+**İçerik**: 1 ana class + 2 private helper metod
+
+```csharp
+// Infrastructure/PasswordHasher/PasswordHasher.cs
+
+public sealed class PasswordHasher : IPasswordHasher
+{
+    private readonly PasswordOptions _opt;
+    
+    public PasswordHasher(IOptions<PasswordOptions> opt)
+    {
+        _opt = opt.Value;
+    }
+    
+    // Base64 formatında 16 byte salt üretir
+    public string GenerateSalt(int size = 16)
+    {
+        var bytes = new byte[size];
+        RandomNumberGenerator.Fill(bytes);
+        return Convert.ToBase64String(bytes);
+    }
+    
+    // SHA-256 + (salt || password || pepper) + iterasyon
+    public string Hash(string password, string saltBase64)
+    {
+        var salt = Convert.FromBase64String(saltBase64);
+        var pepperBytes = Encoding.UTF8.GetBytes(_opt.Pepper ?? string.Empty);
+        
+        // İlk birleşim: salt + password + pepper
+        var input = Combine(salt, Encoding.UTF8.GetBytes(password), pepperBytes);
+        
+        // Iterative hashing (brute-force zorlaştırma)
+        using var sha = SHA256.Create();
+        var hash = sha.ComputeHash(input);
+        for (int i = 1; i < _opt.Iterations; i++)
+            hash = sha.ComputeHash(hash);
+        
+        return Convert.ToBase64String(hash);
+    }
+    
+    // Timing attack'a karşı constant-time karşılaştırma
+    public bool Verify(string password, string saltBase64, string expectedHashBase64)
+    {
+        var computed = Hash(password, saltBase64);
+        var a = Convert.FromBase64String(computed);
+        var b = Convert.FromBase64String(expectedHashBase64);
+        return FixedTimeEquals(a, b);
+    }
+    
+    // HELPER: Byte dizilerini birleştir
+    private static byte[] Combine(params byte[][] arrays)
+    {
+        var len = arrays.Sum(a => a.Length);
+        var result = new byte[len];
+        int pos = 0;
+        foreach (var arr in arrays)
+        {
+            Buffer.BlockCopy(arr, 0, result, pos, arr.Length);
+            pos += arr.Length;
+        }
+        return result;
+    }
+    
+    // HELPER: Sabit zamanlı karşılaştırma (timing attack prevention)
+    private static bool FixedTimeEquals(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b)
+    {
+        if (a.Length != b.Length) return false;
+        int diff = 0;
+        for (int i = 0; i < a.Length; i++)
+            diff |= a[i] ^ b[i];
+        return diff == 0;
+    }
+}
+```
+
+---
+
+#### 8.1.2 PasswordOptions Class
+
+**Dosya**: `Infrastructure/Auth/PasswordOptions.cs`
+
+**Amaç**: Parola hashleme ayarlarını `appsettings.json` ile bind etmek
+
+```csharp
+// Infrastructure/Auth/PasswordOptions.cs
+
+public sealed class PasswordOptions
+{
+    [Range(1_000, 1_000_000)]
+    public int Iterations { get; init; } = 100_000;  // Varsayılan 100k iterasyon
+    
+    // Opsiyonel ama önerilir: uygulama seviyesinde "pepper"
+    [MinLength(0)]
+    public string Pepper { get; init; } = string.Empty;
+}
+```
+
+**appsettings.json Örneği**:
+```json
+{
+  "Password": {
+    "Iterations": 100000,
+    "Pepper": "MySecretPepper2024!"
+  }
+}
+```
+
+**DI Registration** (`Infrastructure/DependencyInjection.cs`):
+```csharp
+services.AddOptions<PasswordOptions>()
+    .Bind(configuration.GetSection("Password"))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+```
+
+---
+
+### 8.2 JWT Authentication - JwtService ve JwtOptions (NESTED CLASS!)
+
+#### 8.2.1 JwtService + JwtOptions Class
+
+**Dosya**: `Infrastructure/Services/JwtService/JwtService.cs`
+
+**ÖNEMLİ**: Bu dosyada **2 class** var:
+1. **JwtService** (Ana servis)
+2. **JwtOptions** (NESTED CLASS - aynı dosya içinde, satır 103-120)
+
+```csharp
+// Infrastructure/Services/JwtService/JwtService.cs
+
+public sealed class JwtService : IJwtService
+{
+    private static byte[] DecodeKey(string? b64)
+    {
+        if (string.IsNullOrWhiteSpace(b64))
+            throw new InvalidOperationException("Jwt:Key boş!");
+        var clean = b64.Trim();
+        return Convert.FromBase64String(clean);
+    }
+    
+    private readonly JwtOptions _opt;
+    private readonly SigningCredentials _creds;
+    private readonly JwtHeader _headerTemplate;
+    
+    public JwtService(IOptions<JwtOptions> options)
+    {
+        _opt = options.Value ?? throw new ArgumentNullException(nameof(options));
+        
+        var keyBytes = DecodeKey(_opt.Key);
+        var securityKey = new SymmetricSecurityKey(keyBytes);
+        _creds = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+        
+        _headerTemplate = new JwtHeader(_creds);
+        if (!string.IsNullOrWhiteSpace(_opt.KeyId))
+        {
+            // kid header anahtar rotasyonu için
+            _headerTemplate["kid"] = _opt.KeyId;
+        }
+    }
+    
+    public AuthResponseDto GenerateToken(Users user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        
+        var now = DateTime.UtcNow;
+        var expires = now.AddMinutes(_opt.ExpiryMinutes);
+        
+        var claims = BuildClaims(user);
+        
+        var token = new JwtSecurityToken(
+            issuer: _opt.Issuer,
+            audience: _opt.Audience,
+            claims: claims,
+            notBefore: now,
+            expires: expires,
+            signingCredentials: _creds
+        );
+        
+        // Header template'teki kid vs. değerlerini uygula
+        foreach (var kv in _headerTemplate)
+            token.Header[kv.Key] = kv.Value;
+        
+        var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+        
+        return new AuthResponseDto
+        {
+            Token = tokenString,
+            Expiration = expires
+        };
+    }
+    
+    private static IEnumerable<Claim> BuildClaims(Users user)
+    {
+        // PII içermeyen, minimal claim seti
+        yield return new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString());
+        yield return new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString());
+        yield return new Claim(JwtRegisteredClaimNames.UniqueName, user.Username);
+        
+        // İsim-soyisim (varsa)
+        if (!string.IsNullOrWhiteSpace(user.FirstName))
+            yield return new Claim("given_name", user.FirstName);
+        if (!string.IsNullOrWhiteSpace(user.LastName))
+            yield return new Claim("surname", user.LastName);
+        
+        // Özel (custom) claim'ler – veritabanı alanlarına 1:1
+        if (user.RoleId.HasValue)
+            yield return new Claim("role_id", user.RoleId.Value.ToString());
+        
+        if (user.BranchId.HasValue)
+            yield return new Claim("branch_id", user.BranchId.Value.ToString());
+        
+        yield return new Claim("is_active", user.IsActive ?? false ? "true" : "false");
+    }
+}
+
+// ====================================================================
+// NESTED CLASS (AYNI DOSYA İÇİNDE!) - Satır 103-120
+// ====================================================================
+
+public sealed class JwtOptions
+{
+    [Required, MinLength(1)]
+    public string Issuer { get; init; } = default!;
+    
+    [Required, MinLength(1)]
+    public string Audience { get; init; } = default!;
+    
+    // HS256 için en az 32 byte önerilir
+    [Required, MinLength(32, ErrorMessage = "Jwt Key en az 32 karakter olmalıdır.")]
+    public string Key { get; init; } = default!;
+    
+    [Range(5, 1440)]
+    public int ExpiryMinutes { get; init; } = 60;
+    
+    // İsteğe bağlı: key rotation için header'a yazılır
+    public string? KeyId { get; init; }
+}
+```
+
+**appsettings.json Örneği**:
+```json
+{
+  "Jwt": {
+    "Issuer": "KuyumStokApi",
+    "Audience": "KuyumStokApiClients",
+    "Key": "Base64EncodedSecretKeyHere==",
+    "ExpiryMinutes": 1440,
+    "KeyId": "v1"
+  }
+}
+```
+
+**DI Registration**:
+```csharp
+services.AddOptions<JwtOptions>()
+    .Bind(configuration.GetSection("Jwt"))
+    .ValidateDataAnnotations()
+    .Validate(o => !string.IsNullOrWhiteSpace(o.Key), "Jwt Key boş olamaz.")
+    .ValidateOnStart();
+
+services.AddSingleton<IJwtService, JwtService>();
+```
+
+---
+
+### 8.3 CurrentUser Context - ICurrentUserContext ve Implementation'ları
+
+#### 8.3.1 ICurrentUserContext Interface
+
+**Dosya**: `Application/Interfaces/Auth/ICurrentUserContext.cs`
+
+```csharp
+// Application/Interfaces/Auth/ICurrentUserContext.cs
+
 public interface ICurrentUserContext
 {
-    bool IsAuthenticated { get; }
-    string? UserName { get; }
     int? UserId { get; }
     int? BranchId { get; }
+}
+```
+
+---
+
+#### 8.3.2 CurrentUserContext Implementation
+
+**Dosya**: `Application/Interfaces/Auth/CurrentUserContext.cs`
+
+**ÖNEMLİ**: Bu implementation **Application katmanında** (normalde Infrastructure'da olmalı ama mevcut proje böyle)
+
+```csharp
+// Application/Interfaces/Auth/CurrentUserContext.cs
+
+public sealed class CurrentUserContext : ICurrentUserContext
+{
+    private readonly IHttpContextAccessor _http;
+    
+    public CurrentUserContext(IHttpContextAccessor http) => _http = http;
+    
+    public int? UserId => ReadInt("userId", "sub", ClaimTypes.NameIdentifier);
+    public int? BranchId => ReadInt("branchId", "branch_id", "branch");
+    
+    // HELPER: JWT claim'lerinden int oku (fallback destekli)
+    private int? ReadInt(params string[] keys)
+    {
+        var claims = _http.HttpContext?.User?.Claims;
+        if (claims is null) return null;
+        
+        foreach (var k in keys)
+        {
+            var v = claims.FirstOrDefault(c => c.Type.Equals(k, StringComparison.OrdinalIgnoreCase))?.Value;
+            if (int.TryParse(v, out var num)) return num;
+        }
+        return null;
+    }
 }
 ```
 
@@ -1341,20 +2126,201 @@ public class StocksService : IStocksService
     
     public async Task<ApiResult<PagedResult<StockDto>>> GetPagedAsync(StockFilter filter)
     {
+        // Kullanıcı branch'ı JWT'den otomatik al
         var branchId = filter.BranchId ?? _user.BranchId;
-        // Kullanıcı kendi şubesini görür
+        
+        var query = _db.Stocks
+            .Where(s => s.BranchId == branchId)
+            // ...
     }
 }
 ```
 
 ---
 
+#### 8.3.3 ICurrentUserService Interface (Backward Compatibility)
+
+**Dosya**: `Application/Common/ICurrenUserService.cs` (TYPO: ICurren, not ICurrent!)
+
+**Amaç**: Eski kod uyumluluğu için, ek property'ler içerir
+
+```csharp
+// Application/Common/ICurrenUserService.cs
+
+public interface ICurrentUserService
+{
+    int? UserId { get; }
+    string? UserName { get; }
+    bool IsAuthenticated { get; }
+}
+```
+
+---
+
+#### 8.3.4 CurrentUserService Implementation
+
+**Dosya**: `Infrastructure/Auth/CurrentUserService.cs`
+
+```csharp
+// Infrastructure/Auth/CurrentUserService.cs
+
+public sealed class CurrentUserService : ICurrentUserService
+{
+    private readonly IHttpContextAccessor _http;
+    
+    public CurrentUserService(IHttpContextAccessor http) => _http = http;
+    
+    public bool IsAuthenticated => _http.HttpContext?.User?.Identity?.IsAuthenticated ?? false;
+    
+    public string? UserName
+    {
+        get
+        {
+            var u = _http.HttpContext?.User;
+            return u?.Identity?.Name
+                ?? u?.FindFirst(JwtRegisteredClaimNames.UniqueName)?.Value
+                ?? u?.FindFirst(ClaimTypes.Name)?.Value;
+        }
+    }
+    
+    public int? UserId
+    {
+        get
+        {
+            var u = _http.HttpContext?.User;
+            var id =
+                u?.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
+                u?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+            
+            return int.TryParse(id, out var i) ? i : null;
+        }
+    }
+}
+```
+
+**DI Registration**:
+```csharp
+// Program.cs
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUserContext, CurrentUserContext>();
+
+// Infrastructure/DependencyInjection.cs
+services.AddScoped<ICurrentUserService, CurrentUserService>();
+```
+
+---
+
+### 8.4 Program.cs JWT Yapılandırması
+
+**Tam Pipeline**:
+```csharp
+// Program.cs (Top-level statements)
+
+using KuyumStokApi.Infrastructure;
+using KuyumStokApi.Persistence;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+using System.Text;
+
+static byte[] DecodeKey(string? b64)
+{
+    if (string.IsNullOrWhiteSpace(b64))
+        throw new InvalidOperationException("Jwt:Key boş!");
+    return Convert.FromBase64String(b64.Trim());
+}
+
+var builder = WebApplication.CreateBuilder(args);
+var cfg = builder.Configuration;
+
+builder.Services.AddControllers();
+builder.Services.AddPersistence(cfg);
+builder.Services.AddInfrastructure(cfg);
+builder.Services.AddHttpContextAccessor();
+
+// JWT Authentication
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        var keyBytes = DecodeKey(cfg["Jwt:Key"]);
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = cfg["Jwt:Issuer"],
+            ValidateAudience = true,
+            ValidAudience = cfg["Jwt:Audience"],
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.Zero  // Token expire olunca hemen geçersiz
+        };
+    });
+
+builder.Services.AddAuthorization();
+
+// Swagger + JWT Bearer
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(opt =>
+{
+    opt.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "Bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "JWT Authorization header. Example: 'Bearer {token}'"
+    });
+    opt.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
+
+var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
+app.UseAuthentication();  // JWT middleware (ÖNCE!)
+app.UseAuthorization();   // Authorization middleware (SONRA!)
+app.MapControllers();
+
+app.Run();
+```
+
+---
+
 ## 9. ÖNEMLİ ÖZELLİKLER VE DESENLER
 
-### 9.1 ApiResult<T> Standardizasyonu
+### 9.1 ApiResult<T> ve PagedResult<TItem> - Standart Response Modelleri
 
-Tüm API yanıtları standart formatta:
+**Dosya**: `Application/Common/ApiResult.cs`
+
+**İçerik**: 2 ayrı class (nested değil!)
+
+#### 9.1.1 ApiResult<T> Class
+
+Tüm API endpoint'leri için standart yanıt yapısı:
+
 ```csharp
+// Application/Common/ApiResult.cs
+
 public class ApiResult<T>
 {
     public bool Success { get; set; }
@@ -1362,19 +2328,187 @@ public class ApiResult<T>
     public List<string>? Errors { get; set; }
     public T? Data { get; set; }
     public int StatusCode { get; set; }
-    public DateTime Timestamp { get; set; }
-    public string TraceId { get; set; }
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+    public string TraceId { get; set; } = Guid.NewGuid().ToString();
+    
+    // Static factory method: Başarılı yanıt
+    public static ApiResult<T> Ok(T data, string message = "", int statusCode = 200) =>
+        new ApiResult<T>
+        {
+            Success = true,
+            Message = message,
+            Data = data,
+            StatusCode = statusCode
+        };
+    
+    // Static factory method: Hatalı yanıt
+    public static ApiResult<T> Fail(string message, List<string>? errors = null, int statusCode = 400) =>
+        new ApiResult<T>
+        {
+            Success = false,
+            Message = message,
+            Errors = errors,
+            StatusCode = statusCode
+        };
 }
 ```
 
-**Kullanım**:
-```csharp
-// Success
-return ApiResult<StockDto>.Ok(dto, "Stok bulundu", 200);
+**Kullanım Örnekleri**:
 
-// Failure
-return ApiResult<StockDto>.Fail("Stok bulunamadı", statusCode: 404);
+```csharp
+// Controller içinde - Başarılı
+public async Task<ActionResult<ApiResult<StockDto>>> GetById(int id)
+{
+    var stock = await _service.GetByIdAsync(id);
+    if (stock == null)
+        return NotFound(ApiResult<StockDto>.Fail("Stok bulunamadı", statusCode: 404));
+    
+    return Ok(ApiResult<StockDto>.Ok(stock, "Stok başarıyla bulundu", 200));
+}
+
+// Service içinde - Validation hatası
+return ApiResult<bool>.Fail("Geçersiz giriş", 
+    new List<string> { "Barcode boş olamaz", "Quantity 0'dan büyük olmalı" },
+    statusCode: 400);
+
+// Service içinde - Başarılı işlem
+return ApiResult<SaleResultDto>.Ok(result, "Satış başarıyla oluşturuldu", 201);
 ```
+
+**JSON Çıktı Örneği**:
+```json
+{
+  "success": true,
+  "message": "Stok başarıyla bulundu",
+  "errors": null,
+  "data": {
+    "id": 123,
+    "barcode": "ABC123",
+    "quantity": 5
+  },
+  "statusCode": 200,
+  "timestamp": "2025-11-09T12:34:56Z",
+  "traceId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+}
+```
+
+---
+
+#### 9.1.2 PagedResult<TItem> Class
+
+Büyük listelerin sayfalı olarak döndürülmesi için:
+
+```csharp
+// Application/Common/ApiResult.cs (aynı dosyada!)
+
+public sealed class PagedResult<TItem>
+{
+    public IReadOnlyList<TItem> Items { get; init; } = Array.Empty<TItem>();
+    public int Page { get; init; }
+    public int PageSize { get; init; }
+    public long TotalCount { get; init; }
+}
+```
+
+**Kullanım Örnekleri**:
+
+```csharp
+// Service içinde - Sayfalı liste oluşturma
+public async Task<ApiResult<PagedResult<StockDto>>> GetPagedAsync(StockFilter filter, CancellationToken ct)
+{
+    var page = Math.Max(1, filter.Page);
+    var pageSize = Math.Clamp(filter.PageSize, 1, 200);
+    
+    var query = _db.Stocks
+        .AsNoTracking()
+        .Where(s => s.IsDeleted == false);
+    
+    // Filter uygula (branch, query, vb.)
+    if (filter.BranchId.HasValue)
+        query = query.Where(s => s.BranchId == filter.BranchId);
+    
+    // Total count (pagination için)
+    var totalCount = await query.LongCountAsync(ct);
+    
+    // Sayfalama + DTO projection
+    var items = await query
+        .Skip((page - 1) * pageSize)
+        .Take(pageSize)
+        .Select(s => new StockDto
+        {
+            Id = s.Id,
+            Barcode = s.Barcode,
+            Quantity = s.Quantity,
+            // ...
+        })
+        .ToListAsync(ct);
+    
+    var pagedResult = new PagedResult<StockDto>
+    {
+        Items = items,
+        Page = page,
+        PageSize = pageSize,
+        TotalCount = totalCount
+    };
+    
+    return ApiResult<PagedResult<StockDto>>.Ok(pagedResult);
+}
+```
+
+**JSON Çıktı Örneği**:
+```json
+{
+  "success": true,
+  "message": "",
+  "errors": null,
+  "data": {
+    "items": [
+      { "id": 1, "barcode": "ABC123", "quantity": 5 },
+      { "id": 2, "barcode": "DEF456", "quantity": 3 }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "totalCount": 156
+  },
+  "statusCode": 200,
+  "timestamp": "2025-11-09T12:34:56Z",
+  "traceId": "..."
+}
+```
+
+**Frontend Kullanımı**:
+```typescript
+// TypeScript/React örneği
+interface ApiResult<T> {
+  success: boolean;
+  message?: string;
+  errors?: string[];
+  data?: T;
+  statusCode: number;
+  timestamp: string;
+  traceId: string;
+}
+
+interface PagedResult<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+}
+
+// API çağrısı
+const response = await fetch(`/api/stocks?page=1&pageSize=20`);
+const result: ApiResult<PagedResult<StockDto>> = await response.json();
+
+if (result.success && result.data) {
+  const { items, page, pageSize, totalCount } = result.data;
+  const totalPages = Math.ceil(totalCount / pageSize);
+  
+  console.log(`Showing ${items.length} of ${totalCount} stocks (Page ${page}/${totalPages})`);
+}
+```
+
+---
 
 ### 9.2 Soft Delete Pattern
 
@@ -1390,6 +2524,25 @@ var activeCustomers = await _db.Customers
     .ToListAsync();
 ```
 
+**Soft Delete İşlemi**:
+```csharp
+public async Task<ApiResult<bool>> DeleteAsync(int id, CancellationToken ct)
+{
+    var entity = await _db.ProductVariants.FindAsync(id);
+    if (entity == null)
+        return ApiResult<bool>.Fail("Kayıt bulunamadı", statusCode: 404);
+    
+    entity.IsDeleted = true;
+    entity.DeletedAt = DateTime.UtcNow;
+    entity.DeletedBy = _currentUser.UserId;
+    
+    await _db.SaveChangesAsync(ct);
+    return ApiResult<bool>.Ok(true, "Kayıt silindi");
+}
+```
+
+---
+
 ### 9.3 Transaction Yönetimi
 
 Kritik işlemler transaction ile korunur:
@@ -1398,9 +2551,16 @@ using var tx = await _db.Database.BeginTransactionAsync(ct);
 
 try
 {
-    // Stok düşür
-    // Satış kaydı oluştur
-    // Lifecycle ekle
+    // 1. Stok düşür
+    stock.Quantity -= item.Quantity;
+    
+    // 2. Satış kaydı oluştur
+    var sale = new Sales { /* ... */ };
+    _db.Sales.Add(sale);
+    
+    // 3. Lifecycle ekle
+    var lifecycle = new ProductLifecycles { /* ... */ };
+    _db.ProductLifecycles.Add(lifecycle);
     
     await _db.SaveChangesAsync(ct);
     await tx.CommitAsync(ct);
@@ -1412,36 +2572,37 @@ catch
 }
 ```
 
-### 9.4 Sayfalama (Pagination)
+---
 
-Büyük listelerde performans için:
-```csharp
-public class PagedResult<TItem>
-{
-    public IReadOnlyList<TItem> Items { get; init; }
-    public int Page { get; init; }
-    public int PageSize { get; init; }
-    public long TotalCount { get; init; }
-}
-```
-
-**Kullanım**:
-```csharp
-var page = Math.Max(1, filter.Page);
-var pageSize = Math.Clamp(filter.PageSize, 1, 200);
-
-var items = await query
-    .Skip((page - 1) * pageSize)
-    .Take(pageSize)
-    .ToListAsync();
-```
-
-### 9.5 Entity Framework Query Optimization
+### 9.4 Entity Framework Query Optimization
 
 - **AsNoTracking()**: Read-only sorgularda performans
 - **Include()**: Eager loading (ilişkili verileri tek sorguda çek)
 - **Select()**: Projection (sadece gerekli kolonları çek)
 - **Join**: Manuel join ile daha kontrollü sorgular
+
+**Örnek**:
+```csharp
+// ✅ İyi: Direct projection (performanslı)
+var stocks = await _db.Stocks
+    .AsNoTracking()
+    .Select(s => new StockDto
+    {
+        Id = s.Id,
+        Barcode = s.Barcode,
+        ProductVariant = new StockDto.VariantBrief
+        {
+            Name = s.ProductVariant != null ? s.ProductVariant.Name : null,
+            Ayar = s.ProductVariant != null ? s.ProductVariant.Ayar : null
+        }
+    })
+    .ToListAsync();
+
+// ❌ Kötü: Full entity loading (gereksiz)
+var stocks = await _db.Stocks
+    .Include(s => s.ProductVariant)
+    .ToListAsync();
+```
 
 ---
 
@@ -1751,5 +2912,135 @@ public static class DependencyInjection
 
 ---
 
-**🎯 Bu dokümantasyon, projeyi başka bir AI modeline veya geliştiriciye anlatmak için tam bir rehber niteliğindedir.**
+## 11. NESTED CLASS'LAR VE AYNI DOSYADA TANIMLANAN SINIFLAR - EKSİKSİZ LİSTE
+
+Bu bölüm, projedeki **tüm nested class'ları** ve **aynı dosyada tanımlanmış birden fazla class'ı** listeler.
+
+### 11.1 Infrastructure Katmanı
+
+#### 📁 `Infrastructure/Services/JwtService/JwtService.cs`
+
+**İçerik**: 2 class (ana + nested)
+
+1. **JwtService** (Ana servis)
+2. **JwtOptions** (NESTED CLASS - satır 103-120)
+   - `Issuer`, `Audience`, `Key`, `ExpiryMinutes`, `KeyId`
+
+**NOT**: `JwtOptions` ayrı bir dosya DEĞİL, `JwtService.cs` içinde tanımlı!
+
+---
+
+### 11.2 Application/DTOs Katmanı
+
+#### 📁 `Application/DTOs/Stocks/StocksDto.cs`
+
+**İçerik**: 4 class + 2 nested + 1 record
+
+1. **StockDto** (Ana)
+   - **VariantBrief** (NESTED - satır 22-34)
+   - **BranchBrief** (NESTED - satır 36-40)
+2. **StockCreateDto**
+3. **StockUpdateDto**
+4. **StockFilter** (record)
+
+---
+
+#### 📁 `Application/DTOs/Stocks/StockVariantDetailByStoreDto.cs`
+
+**İçerik**: 1 class + 2 nested
+
+1. **StockVariantDetailByStoreDto** (Ana)
+   - **BranchBlock** (NESTED - satır 19-26)
+   - **StockChip** (NESTED - satır 28-34)
+
+---
+
+#### 📁 `Application/DTOs/ProductVariant/ProductVariantDto.cs`
+
+**İçerik**: 4 class + 1 nested + 1 record
+
+1. **ProductVariantDto** (Ana)
+   - **ProductTypeBrief** (NESTED - satır 41-54)
+2. **ProductVariantCreateDto**
+3. **ProductVariantUpdateDto**
+4. **ProductVariantFilter** (record)
+
+---
+
+#### 📁 `Application/DTOs/ProductType/ProductTypeDto.cs`
+
+**İçerik**: 4 class + 1 nested + 1 record
+
+1. **ProductTypeDto** (Ana)
+   - **CategoryBrief** (NESTED - satır 19-23)
+2. **ProductTypeCreateDto**
+3. **ProductTypeUpdateDto**
+4. **ProductTypeFilter** (record)
+
+---
+
+#### 📁 `Application/DTOs/Branches/BranchDto.cs`
+
+**İçerik**: 4 class + 1 nested + 1 record
+
+1. **BranchDto** (Ana)
+   - **StoreBrief** (NESTED - satır 37-44)
+2. **BranchCreateDto**
+3. **BranchUpdateDto**
+4. **BranchFilter** (record)
+
+---
+
+#### 📁 `Application/DTOs/Auth/PasswordCheckRequestDto.cs`
+
+**UYARI**: Bu dosyada **3 ayrı class** var (hepsi aynı seviyede, nested değil!)
+
+1. **PasswordCheckRequestDto** (satır 9-15)
+2. **PasswordCheckResultDto** (satır 17-22)
+3. **RegisterValidationResultDto** (satır 24-29)
+
+---
+
+### 11.3 Application/Common Katmanı
+
+#### 📁 `Application/Common/ApiResult.cs`
+
+**İçerik**: 2 class (nested değil, aynı dosyada!)
+
+1. **ApiResult<T>** (satır 9-36)
+2. **PagedResult<TItem>** (satır 37-43)
+
+---
+
+### 11.4 Özet Tablo
+
+| Dosya | Ana Class Sayısı | Nested Class Sayısı | Toplam |
+|-------|------------------|---------------------|--------|
+| `JwtService/JwtService.cs` | 1 (JwtService) | 1 (JwtOptions) | 2 |
+| `DTOs/Stocks/StocksDto.cs` | 4 | 2 (VariantBrief, BranchBrief) | 6 |
+| `DTOs/Stocks/StockVariantDetailByStoreDto.cs` | 1 | 2 (BranchBlock, StockChip) | 3 |
+| `DTOs/ProductVariant/ProductVariantDto.cs` | 4 | 1 (ProductTypeBrief) | 5 |
+| `DTOs/ProductType/ProductTypeDto.cs` | 4 | 1 (CategoryBrief) | 5 |
+| `DTOs/Branches/BranchDto.cs` | 4 | 1 (StoreBrief) | 5 |
+| `DTOs/Auth/PasswordCheckRequestDto.cs` | 3 (ayrı) | 0 | 3 |
+| `Common/ApiResult.cs` | 2 (ayrı) | 0 | 2 |
+| **TOPLAM** | **23** | **8** | **31** |
+
+---
+
+### 11.5 Önemli Notlar
+
+1. **JwtOptions**, `JwtService.cs` içinde tanımlı bir nested class'tır. Ayrı bir `JwtOptions.cs` dosyası YOKTUR!
+
+2. **PasswordCheckRequestDto.cs** dosyasında 3 ayrı class var ama bunlar nested DEĞİL, aynı namespace'de aynı dosyada tanımlanmış.
+
+3. **ApiResult.cs** dosyasında `ApiResult<T>` ve `PagedResult<TItem>` ayrı class'lar ama nested DEĞİL.
+
+4. **DTO nested class'ları** genellikle "Brief" (özet) veya "Block" (blok) olarak adlandırılır ve parent class'ın içinde tanımlıdır.
+
+5. **Tüm nested class'lar `sealed`** olarak işaretlenmiştir (immutability ve performans için).
+
+---
+
+**🎯 Bu dokümantasyon, projeyi başka bir AI modeline veya geliştiriciye anlatmak için EKSİKSİZ bir rehber niteliğindedir. Tüm nested class'lar, aynı dosyada tanımlanmış class'lar ve ilişkiler detaylı olarak açıklanmıştır.**
 

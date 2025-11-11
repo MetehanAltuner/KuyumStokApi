@@ -2,13 +2,17 @@
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
 WORKDIR /app
 
-# Non-root kullanýcý oluþtur (ID: 64198 örnek)
+# Create non-root user (uid example: 64198)
 RUN adduser --disabled-password --gecos "" --uid 64198 appuser \
- && chown -R appuser:appuser /app
+    && chown -R appuser:appuser /app
 USER appuser
 
-# Uygulamanýn dinlediði adres/port
+# App configuration
 ENV ASPNETCORE_URLS=http://0.0.0.0:8080
+ENV ASPNETCORE_ENVIRONMENT=Production
+# Leave SKIP_DB_MIGRATE unset/false -> migrations run on startup via MigrateAndSeedAsync
+ENV SKIP_DB_MIGRATE=false
+
 EXPOSE 8080
 
 # ---------- BUILD ----------
@@ -16,7 +20,7 @@ FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
-# Proje dosyalarýný kopyala (restore cache için önce csproj’lar)
+# Copy project files (better restore caching)
 COPY ["KuyumStokApi.API/KuyumStokApi.API.csproj", "KuyumStokApi.API/"]
 COPY ["KuyumStokApi.Application/KuyumStokApi.Application.csproj", "KuyumStokApi.Application/"]
 COPY ["KuyumStokApi.Domain/KuyumStokApi.Domain.csproj", "KuyumStokApi.Domain/"]
@@ -25,7 +29,7 @@ COPY ["KuyumStokApi.Persistence/KuyumStokApi.Persistence.csproj", "KuyumStokApi.
 
 RUN dotnet restore "KuyumStokApi.API/KuyumStokApi.API.csproj"
 
-# Kaynaklarýn tamamýný kopyala ve build et
+# Copy source and build
 COPY . .
 WORKDIR /src/KuyumStokApi.API
 RUN dotnet build "KuyumStokApi.API.csproj" -c $BUILD_CONFIGURATION -o /app/build
@@ -39,4 +43,5 @@ RUN dotnet publish "KuyumStokApi.API.csproj" -c $BUILD_CONFIGURATION -o /app/pub
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+
 ENTRYPOINT ["dotnet", "KuyumStokApi.API.dll"]
