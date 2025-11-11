@@ -24,5 +24,8 @@ namespace KuyumStokApi.Application.Interfaces.Services
         Task<ApiResult<bool>> UpdateAsync(int id, StockUpdateDto dto, CancellationToken ct = default);
         Task<ApiResult<bool>> DeleteAsync(int id, CancellationToken ct = default);
         Task<ApiResult<bool>> HardDeleteAsync(int id, CancellationToken ct = default);
+
+        // FAVORİLER: En çok satılan ürünler (ProductVariant bazında)
+        Task<ApiResult<List<FavoriteProductDto>>> GetFavoritesAsync(int top = 10, int days = 30, bool onlyMarked = false, CancellationToken ct = default);
     }
 }

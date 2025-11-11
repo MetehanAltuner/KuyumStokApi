@@ -1,19 +1,20 @@
-﻿using System;
-using System.Collections.Generic;
+using System;
 
 namespace KuyumStokApi.Domain.Entities;
 
-public partial class Customers
+public partial class ThermalPrinters
 {
     public int Id { get; set; }
 
+    public int? BranchId { get; set; }
+
     public string Name { get; set; } = null!;
 
-    public string? Phone { get; set; }
+    public string IpAddress { get; set; } = null!;
 
-    public string? Note { get; set; }
+    public int Port { get; set; }
 
-    public string? NationalId { get; set; }
+    public string? Description { get; set; }
 
     public DateTime? CreatedAt { get; set; }
 
@@ -27,7 +28,7 @@ public partial class Customers
 
     public bool IsActive { get; set; }
 
-    public virtual ICollection<Purchases> Purchases { get; set; } = new List<Purchases>();
-
-    public virtual ICollection<Sales> Sales { get; set; } = new List<Sales>();
+    public virtual Branches? Branch { get; set; }
 }
+
+

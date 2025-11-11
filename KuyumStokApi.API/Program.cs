@@ -1,6 +1,7 @@
 ﻿using KuyumStokApi.Infrastructure;
 using KuyumStokApi.Infrastructure.Services.BanksService;
 using KuyumStokApi.Persistence;
+using KuyumStokApi.Persistence.Extensions;
 using KuyumStokApi.Application.Common;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -131,5 +132,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// 🔄 Veritabanı migration ve seed data (app.Run öncesi!)
+await app.MigrateAndSeedAsync();
 
 app.Run();

@@ -29,5 +29,7 @@ public partial class Sales
 
     public virtual ICollection<SaleDetails> SaleDetails { get; set; } = new List<SaleDetails>();
 
+    public virtual ICollection<SalePayments> SalePayments { get; set; } = new List<SalePayments>();
+
     public virtual Users? User { get; set; }
 }

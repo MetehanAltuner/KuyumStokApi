@@ -14,23 +14,38 @@ namespace KuyumStokApi.Application.DTOs.Sales
         public decimal SoldPrice { get; set; }   // detay tablosu için
     }
 
-    /// <summary>Satış fişi oluşturma DTO’su.</summary>
+    /// <summary>Satış fişi oluşturma DTO'su (Çoklu Ödeme Destekli).</summary>
     public sealed class SaleCreateDto
     {
-        public int? UserId { get; set; }          // yoksa CurrentUser
-        public int BranchId { get; set; }
-
+        // Müşteri Bilgileri
         public int? CustomerId { get; set; }
         public string? CustomerName { get; set; }
         public string? CustomerPhone { get; set; }
-        public string? CustomerNationalId { get; set; } // T.C. alanı (customers’da karşılığı yoksa sadece notta tutabiliriz)
+        public string? CustomerNationalId { get; set; }
 
-        public int? PaymentMethodId { get; set; } // Nakit/EFT/POS tek seçim
-        public int? BankId { get; set; }          // POS ise
-        public decimal? CommissionRate { get; set; }
-        public decimal? ExpectedAmount { get; set; }
-
+        // Satış Kalemleri
         public List<SaleItemDto> Items { get; set; } = new();
+
+        // Ödeme Bilgileri (Çoklu Ödeme)
+        /// <summary>Nakit ödeme tutarı</summary>
+        public decimal CashAmount { get; set; }
+
+        /// <summary>EFT/Havale ödeme tutarı</summary>
+        public decimal EftAmount { get; set; }
+
+        /// <summary>POS (Kredi Kartı) ödeme tutarı</summary>
+        public decimal PosAmount { get; set; }
+
+        /// <summary>POS ödemesi için banka seçimi (Foreign Key → Banks)</summary>
+        public int? POS_BankId { get; set; }
+
+        /// <summary>POS komisyon oranı (örn: 0.025 = %2.5)</summary>
+        public decimal? POS_CommissionRate { get; set; }
+
+        /// <summary>Toplam satış tutarı (Items'ların toplamı, doğrulama için)</summary>
+        public decimal TotalAmount { get; set; }
+
+        // NOT: UserId ve BranchId artık CurrentUser'dan otomatik alınacak!
     }
 
 

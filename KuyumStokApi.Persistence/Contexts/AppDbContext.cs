@@ -42,11 +42,15 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<SaleDetails> SaleDetails { get; set; }
 
+    public virtual DbSet<SalePayments> SalePayments { get; set; }
+
     public virtual DbSet<Sales> Sales { get; set; }
 
     public virtual DbSet<Stocks> Stocks { get; set; }
 
     public virtual DbSet<Stores> Stores { get; set; }
+
+    public virtual DbSet<ThermalPrinters> ThermalPrinters { get; set; }
 
     public virtual DbSet<Users> Users { get; set; }
 
@@ -153,9 +157,16 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Name).HasColumnName("name");
             entity.Property(e => e.Note).HasColumnName("note");
             entity.Property(e => e.Phone).HasColumnName("phone");
+            entity.Property(e => e.NationalId)
+                .HasMaxLength(11)
+                .HasColumnName("national_id");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
+
+            entity.HasIndex(e => e.NationalId, "ux_customers_national_id")
+                .IsUnique()
+                .HasFilter("national_id IS NOT NULL");
         });
 
         modelBuilder.Entity<LifecycleActions>(entity =>
@@ -321,6 +332,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.IsDeleted)
                 .HasDefaultValue(false)
                 .HasColumnName("is_deleted");
+            entity.Property(e => e.IsFavorite)
+                .HasDefaultValue(false)
+                .HasColumnName("is_favorite");
             entity.Property(e => e.Name).HasColumnName("name");
             entity.Property(e => e.ProductTypeId).HasColumnName("product_type_id");
             entity.Property(e => e.UpdatedAt)
@@ -474,6 +488,39 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("sales_user_id_fkey");
         });
 
+        modelBuilder.Entity<SalePayments>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("sale_payments_pkey");
+
+            entity.ToTable("sale_payments");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.SaleId).HasColumnName("sale_id");
+            entity.Property(e => e.PaymentMethodId).HasColumnName("payment_method_id");
+            entity.Property(e => e.Amount).HasColumnName("amount");
+            entity.Property(e => e.BankId).HasColumnName("bank_id");
+            entity.Property(e => e.CommissionRate).HasColumnName("commission_rate");
+            entity.Property(e => e.NetAmount).HasColumnName("net_amount");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Sale).WithMany(p => p.SalePayments)
+                .HasForeignKey(d => d.SaleId)
+                .HasConstraintName("sale_payments_sale_id_fkey");
+
+            entity.HasOne(d => d.PaymentMethod).WithMany()
+                .HasForeignKey(d => d.PaymentMethodId)
+                .HasConstraintName("sale_payments_payment_method_id_fkey");
+
+            entity.HasOne(d => d.Bank).WithMany()
+                .HasForeignKey(d => d.BankId)
+                .HasConstraintName("sale_payments_bank_id_fkey");
+        });
+
         modelBuilder.Entity<Stocks>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("stocks_pkey");
@@ -486,6 +533,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Barcode).HasColumnName("barcode");
             entity.Property(e => e.BranchId).HasColumnName("branch_id");
             entity.Property(e => e.Carat).HasColumnName("carat");
+            entity.Property(e => e.Color).HasColumnName("color");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
@@ -574,6 +622,46 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.Role).WithMany(p => p.Users)
                 .HasForeignKey(d => d.RoleId)
                 .HasConstraintName("users_role_id_fkey");
+        });
+
+        modelBuilder.Entity<ThermalPrinters>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("thermal_printers_pkey");
+
+            entity.ToTable("thermal_printers");
+
+            entity.HasIndex(e => e.BranchId, "uq_thermal_printers_branch")
+                .IsUnique()
+                .HasFilter("branch_id IS NOT NULL");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.BranchId).HasColumnName("branch_id");
+            entity.Property(e => e.Name)
+                .HasColumnName("name")
+                .HasMaxLength(128);
+            entity.Property(e => e.IpAddress)
+                .HasColumnName("ip_address")
+                .HasMaxLength(64);
+            entity.Property(e => e.Port).HasColumnName("port");
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnName("updated_at");
+            entity.Property(e => e.IsDeleted)
+                .HasDefaultValue(false)
+                .HasColumnName("is_deleted");
+            entity.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+            entity.Property(e => e.DeletedBy).HasColumnName("deleted_by");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+
+            entity.HasOne(d => d.Branch).WithMany(p => p.ThermalPrinters)
+                .HasForeignKey(d => d.BranchId)
+                .HasConstraintName("thermal_printers_branch_id_fkey");
         });
 
         OnModelCreatingPartial(modelBuilder);

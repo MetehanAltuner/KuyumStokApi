@@ -36,4 +36,6 @@ public partial class Branches
     public virtual Stores? Store { get; set; }
 
     public virtual ICollection<Users> Users { get; set; } = new List<Users>();
+
+    public virtual ICollection<ThermalPrinters> ThermalPrinters { get; set; } = new List<ThermalPrinters>();
 }

@@ -33,6 +33,8 @@ public partial class Stocks
 
     public int? Milyem { get; set; }
 
+    public string? Color { get; set; }
+
     public virtual Branches? Branch { get; set; }
 
     public virtual ICollection<ProductLifecycles> ProductLifecycles { get; set; } = new List<ProductLifecycles>();

@@ -23,4 +23,5 @@ namespace KuyumStokApi.Domain.Entities
 
     // Users
     public partial class Users : ISoftDeletable { }
+    public partial class ThermalPrinters : ISoftDeletable, IActivatable { }
 }

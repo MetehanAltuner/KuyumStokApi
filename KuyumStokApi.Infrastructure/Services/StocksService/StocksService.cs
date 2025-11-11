@@ -9,6 +9,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace KuyumStokApi.Infrastructure.Services.StocksService
 {
@@ -210,22 +212,86 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             return await MapToDto(s, ct);
         }
 
+        /// <summary>
+        /// Stok oluşturur veya merge eder.
+        /// Eğer aynı ProductVariantId + BranchId + fiziksel özellikler varsa, mevcut quantity'i artırır.
+        /// Yoksa yeni stok satırı oluşturur.
+        /// </summary>
         public async Task<ApiResult<StockDto>> CreateAsync(StockCreateDto dto, CancellationToken ct = default)
         {
-            var exists = await _db.Stocks.AnyAsync(x => x.Barcode == dto.Barcode, ct);
-            if (exists)
+            // BranchId belirleme
+            var branchId = dto.BranchId ?? _user.BranchId;
+            if (!branchId.HasValue)
+                return ApiResult<StockDto>.Fail("BranchId belirlenemedi.", statusCode: 400);
+
+            if (dto.Quantity <= 0)
+                return ApiResult<StockDto>.Fail("Quantity >= 1 olmalıdır.", statusCode: 400);
+
+            // Merge Criteria: Aynı özelliklere sahip stok var mı?
+            var match = await _db.Stocks.FirstOrDefaultAsync(s =>
+                s.ProductVariantId == dto.ProductVariantId &&
+                s.BranchId == branchId &&
+                s.Gram == dto.Gram &&
+                s.Thickness == dto.Thickness &&
+                s.Width == dto.Width &&
+                s.StoneType == dto.StoneType &&
+                s.Carat == dto.Carat &&
+                s.Milyem == dto.Milyem &&
+                s.Color == dto.Color
+            , ct);
+
+            if (match != null)
+            {
+                // MERGE: Mevcut quantity'i artır
+                match.Quantity = (match.Quantity ?? 0) + dto.Quantity;
+                match.UpdatedAt = DateTime.UtcNow;
+
+                if (dto.GenerateQrCode && string.IsNullOrWhiteSpace(match.QrCode))
+                {
+                    match.QrCode = BuildQrPayload(match);
+                }
+                else if (!string.IsNullOrWhiteSpace(dto.QrCode))
+                {
+                    match.QrCode = dto.QrCode;
+                }
+
+                await _db.SaveChangesAsync(ct);
+
+                var merged = await GetByIdAsync(match.Id, ct);
+                merged.StatusCode = 200;
+                merged.Message = dto.GenerateQrCode
+                    ? "Mevcut stok güncellendi ve QR kod yenilendi."
+                    : "Mevcut stok güncellendi (quantity artırıldı)";
+                return merged;
+            }
+
+            // YENİ KAYIT: Barcode kontrolü
+            var barcode = string.IsNullOrWhiteSpace(dto.Barcode)
+                ? await GenerateUniqueBarcodeAsync(branchId.Value, ct)
+                : dto.Barcode.Trim();
+
+            var barcodeExists = await _db.Stocks.AnyAsync(x => x.Barcode == barcode, ct);
+            if (barcodeExists)
                 return ApiResult<StockDto>.Fail("Bu barkod zaten kullanılıyor.", statusCode: 409);
 
             var now = DateTime.UtcNow;
-            
+
             var entity = new Domain.Entities.Stocks
             {
                 ProductVariantId = dto.ProductVariantId,
-                BranchId = _user.BranchId, //Bunu user üzerinden allllll
+                BranchId = branchId,
                 Quantity = dto.Quantity,
-                Gram = dto.Weight,
-                Barcode = dto.Barcode,
-                QrCode = dto.QrCode,
+                Barcode = barcode,
+                QrCode = dto.GenerateQrCode && string.IsNullOrWhiteSpace(dto.QrCode)
+                    ? null
+                    : dto.QrCode,
+                Gram = dto.Gram,
+                Thickness = dto.Thickness,
+                Width = dto.Width,
+                StoneType = dto.StoneType,
+                Carat = dto.Carat,
+                Milyem = dto.Milyem,
+                Color = dto.Color,
                 CreatedAt = now,
                 UpdatedAt = now
             };
@@ -233,9 +299,16 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             _db.Stocks.Add(entity);
             await _db.SaveChangesAsync(ct);
 
+            if (dto.GenerateQrCode)
+            {
+                entity.QrCode = BuildQrPayload(entity);
+                entity.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync(ct);
+            }
+
             var created = await GetByIdAsync(entity.Id, ct);
             created.StatusCode = 201;
-            created.Message = "Oluşturuldu";
+            created.Message = "Yeni stok oluşturuldu";
             return created;
         }
 
@@ -295,6 +368,85 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             return affected == 1
                 ? ApiResult<bool>.Ok(true, "Kalıcı silindi", 200)
                 : ApiResult<bool>.Fail("Stok bulunamadı", statusCode: 404);
+        }
+
+        /// <summary>
+        /// En çok satılan ürünleri (ProductVariant bazında) getirir.
+        /// </summary>
+        /// <param name="top">Kaç adet gösterilsin (default 10)</param>
+        /// <param name="days">Son kaç günün satışları (default 30)</param>
+        /// <param name="onlyMarked">Sadece IsFavorite=true olanlar mı (default false)</param>
+        /// <param name="ct">İşlem iptal belirteci.</param>
+        public async Task<ApiResult<List<FavoriteProductDto>>> GetFavoritesAsync(
+            int top = 10,
+            int days = 30,
+            bool onlyMarked = false,
+            CancellationToken ct = default)
+        {
+            var fromDate = DateTime.UtcNow.AddDays(-days);
+
+            var query =
+                from sd in _db.SaleDetails.AsNoTracking()
+                join s in _db.Sales.AsNoTracking() on sd.SaleId equals s.Id
+                join st in _db.Stocks.AsNoTracking() on sd.StockId equals st.Id
+                join pv in _db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id
+                where s.CreatedAt >= fromDate
+                group sd by new { pv.Id, pv.Name, pv.Ayar, pv.Color, pv.Brand, pv.IsFavorite } into g
+                orderby g.Sum(x => x.Quantity) descending
+                select new FavoriteProductDto
+                {
+                    VariantId = g.Key.Id,
+                    VariantName = g.Key.Name,
+                    Ayar = g.Key.Ayar,
+                    Color = g.Key.Color,
+                    Brand = g.Key.Brand,
+                    TotalSoldQty = g.Sum(x => x.Quantity ?? 0),
+                    IsFavorite = g.Key.IsFavorite
+                };
+
+            if (onlyMarked)
+                query = query.Where(x => x.IsFavorite);
+
+            var result = await query.Take(top).ToListAsync(ct);
+
+            return ApiResult<List<FavoriteProductDto>>.Ok(result, "Favori ürünler listelendi", 200);
+        }
+
+        private async Task<string> GenerateUniqueBarcodeAsync(int branchId, CancellationToken ct)
+        {
+            string barcode;
+            do
+            {
+                var randomSuffix = Convert.ToHexString(RandomNumberGenerator.GetBytes(3));
+                barcode = $"STK-{branchId:D3}-{DateTime.UtcNow:yyMMddHHmmssfff}-{randomSuffix}";
+            }
+            while (await _db.Stocks.AnyAsync(x => x.Barcode == barcode, ct));
+
+            return barcode;
+        }
+
+        private static string BuildQrPayload(Domain.Entities.Stocks entity)
+        {
+            var payload = new
+            {
+                entity.Id,
+                entity.ProductVariantId,
+                entity.BranchId,
+                Quantity = 1,
+                entity.Barcode,
+                entity.Gram,
+                entity.Thickness,
+                entity.Width,
+                entity.StoneType,
+                entity.Carat,
+                entity.Milyem,
+                entity.Color,
+                entity.CreatedAt,
+                entity.UpdatedAt
+            };
+
+            var json = JsonSerializer.Serialize(payload);
+            return Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
         }
 
         // ---- helpers ----
