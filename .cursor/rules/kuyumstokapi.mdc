@@ -1,3 +1,7 @@
+---
+alwaysApply: true
+---
+
 ## KuyumStokApi Genel Hatırlatma
 
 - **Katmanlar**: `API` (controller ve middleware), `Application` (DTO + servis kontratları), `Domain` (entity & ortak arayüz), `Infrastructure` (servis implementasyonları + güvenlik), `Persistence` (EF Core DbContext, migrations, seed).
