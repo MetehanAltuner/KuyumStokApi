@@ -286,20 +286,6 @@ namespace KuyumStokApi.Infrastructure.Services.UserService
             return ApiResult<bool>.Ok(true, "Kullanıcı kalıcı olarak silindi.", 200);
         }
 
-        public async Task<ApiResult<bool>> SetActiveAsync(int id, bool value, CancellationToken ct = default)
-        {
-            var entity = await _db.Users.IgnoreQueryFilters()
-                                        .FirstOrDefaultAsync(u => u.Id == id, ct);
-            if (entity is null)
-                return ApiResult<bool>.Fail("Kullanıcı bulunamadı.", statusCode: 404);
-
-            entity.IsActive = value;
-            entity.UpdatedAt = DateTime.UtcNow;
-            await _db.SaveChangesAsync(ct);
-
-            return ApiResult<bool>.Ok(true, value ? "Kullanıcı aktif edildi." : "Kullanıcı pasif edildi.", 200);
-        }
-
         // ---- helpers ----
         private static string NormalizeUsername(string username)
             => (username ?? string.Empty).Trim().ToLowerInvariant();
