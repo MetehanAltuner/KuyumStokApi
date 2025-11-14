@@ -1,11 +1,7 @@
 ﻿using KuyumStokApi.Application.DTOs.Auth;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using KuyumStokApi.Domain.Entities;
 using KuyumStokApi.Application.Common;
+using KuyumStokApi.Application.DTOs.Users;
 
 namespace KuyumStokApi.Application.Interfaces.Services
 {
@@ -16,5 +12,11 @@ namespace KuyumStokApi.Application.Interfaces.Services
         Task<bool> UserExistsAsync(string username);
         Task<ApiResult<PasswordCheckResultDto>> ValidatePasswordAsync(PasswordCheckRequestDto dto, CancellationToken ct = default);
         Task<ApiResult<RegisterValidationResultDto>> ValidateRegisterAsync(RegisterDto dto, CancellationToken ct = default);
+        Task<ApiResult<PagedResult<UserDto>>> GetPagedAsync(UserFilter filter, CancellationToken ct = default);
+        Task<ApiResult<UserDto>> GetByIdAsync(int id, CancellationToken ct = default);
+        Task<ApiResult<UserDto>> UpdateAsync(int id, UserUpdateDto dto, CancellationToken ct = default);
+        Task<ApiResult<bool>> DeleteAsync(int id, CancellationToken ct = default);
+        Task<ApiResult<bool>> HardDeleteAsync(int id, CancellationToken ct = default);
+        Task<ApiResult<bool>> SetActiveAsync(int id, bool value, CancellationToken ct = default);
     }
 }
