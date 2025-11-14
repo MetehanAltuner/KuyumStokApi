@@ -54,13 +54,6 @@ namespace KuyumStokApi.API.Controllers
             return StatusCode(result.StatusCode, result);
         }
 
-        /// <summary>Kullanıcının aktiflik durumunu değiştirir.</summary>
-        [HttpPut("{id:int}/active")]
-        public async Task<IActionResult> SetActive(int id, [FromQuery] bool value = true, CancellationToken ct = default)
-        {
-            var result = await _svc.SetActiveAsync(id, value, ct);
-            return StatusCode(result.StatusCode, result);
-        }
     }
 }
 
