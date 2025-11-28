@@ -15,16 +15,25 @@ namespace KuyumStokApi.API.Controllers
         [HttpGet]
         [Authorize]
         public async Task<IActionResult> GetPaged([FromQuery] ProductLifecycleFilter f, CancellationToken ct)
-            => StatusCode((await _svc.GetPagedAsync(f, ct)).StatusCode, await _svc.GetPagedAsync(f, ct));
+        {
+            var r = await _svc.GetPagedAsync(f, ct);
+            return StatusCode(r.StatusCode, r);
+        }
 
         [HttpGet("{id:int}")]
         [Authorize]
         public async Task<IActionResult> GetById(int id, CancellationToken ct)
-            => StatusCode((await _svc.GetByIdAsync(id, ct)).StatusCode, await _svc.GetByIdAsync(id, ct));
+        {
+            var r = await _svc.GetByIdAsync(id, ct);
+            return StatusCode(r.StatusCode, r);
+        }
 
         [HttpPost]
         [Authorize]
         public async Task<IActionResult> Create(ProductLifecycleCreateDto dto, CancellationToken ct)
-            => StatusCode((await _svc.CreateAsync(dto, ct)).StatusCode, await _svc.CreateAsync(dto, ct));
+        {
+            var r = await _svc.CreateAsync(dto, ct);
+            return StatusCode(r.StatusCode, r);
+        }
     }
 }

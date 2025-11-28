@@ -27,6 +27,9 @@ using KuyumStokApi.Infrastructure.Services.StoresService;
 using KuyumStokApi.Infrastructure.Services.PurchasesService;
 using KuyumStokApi.Infrastructure.Services.ThermalPrintersService;
 using KuyumStokApi.Infrastructure.Services.ReportsService;
+using KuyumStokApi.Infrastructure.Services.DashboardService;
+using KuyumStokApi.Infrastructure.Services.AnomalyDetectionService;
+using KuyumStokApi.Infrastructure.Services.WorkloadEstimationService;
 
 namespace KuyumStokApi.Infrastructure
 {
@@ -68,6 +71,9 @@ namespace KuyumStokApi.Infrastructure
             services.AddScoped<IProductLifecyclesService, ProductLifecyclesService>();
             services.AddScoped<IThermalPrintersService, ThermalPrintersService>();
             services.AddScoped<IReportsService, ReportsService>();
+            services.AddScoped<AnomalyDetectionService>();
+            services.AddScoped<WorkloadEstimationService>();
+            services.AddScoped<IDashboardService, DashboardService>();
 
             return services;
         }

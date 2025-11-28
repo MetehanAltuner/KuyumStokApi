@@ -89,6 +89,7 @@ namespace KuyumStokApi.API.Controllers
         /// <param name="top">Kaç adet gösterilsin (default 10)</param>
         /// <param name="days">Son kaç günün satışları (default 30)</param>
         /// <param name="onlyMarked">Sadece IsFavorite=true olanlar mı (default false)</param>
+        /// <param name="ct">İptal token'ı.</param>
         [HttpGet("favorites")]
         [Authorize]
         public async Task<IActionResult> GetFavorites(

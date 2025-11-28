@@ -15,26 +15,41 @@ namespace KuyumStokApi.API.Controllers
         [HttpGet]
         [Authorize]
         public async Task<IActionResult> GetPaged([FromQuery] LifecycleActionFilter f, CancellationToken ct)
-            => StatusCode((await _svc.GetPagedAsync(f, ct)).StatusCode, await _svc.GetPagedAsync(f, ct));
+        {
+            var r = await _svc.GetPagedAsync(f, ct);
+            return StatusCode(r.StatusCode, r);
+        }
 
         [HttpGet("{id:int}")]
         [Authorize]
         public async Task<IActionResult> GetById(int id, CancellationToken ct)
-            => StatusCode((await _svc.GetByIdAsync(id, ct)).StatusCode, await _svc.GetByIdAsync(id, ct));
+        {
+            var r = await _svc.GetByIdAsync(id, ct);
+            return StatusCode(r.StatusCode, r);
+        }
 
         [HttpPost]
         [Authorize]
         public async Task<IActionResult> Create(LifecycleActionCreateDto dto, CancellationToken ct)
-            => StatusCode((await _svc.CreateAsync(dto, ct)).StatusCode, await _svc.CreateAsync(dto, ct));
+        {
+            var r = await _svc.CreateAsync(dto, ct);
+            return StatusCode(r.StatusCode, r);
+        }
 
         [HttpPut("{id:int}")]
         [Authorize]
         public async Task<IActionResult> Update(int id, LifecycleActionUpdateDto dto, CancellationToken ct)
-            => StatusCode((await _svc.UpdateAsync(id, dto, ct)).StatusCode, await _svc.UpdateAsync(id, dto, ct));
+        {
+            var r = await _svc.UpdateAsync(id, dto, ct);
+            return StatusCode(r.StatusCode, r);
+        }
 
         [HttpDelete("{id:int}")]
         [Authorize]
         public async Task<IActionResult> Delete(int id, CancellationToken ct)
-            => StatusCode((await _svc.DeleteAsync(id, ct)).StatusCode, await _svc.DeleteAsync(id, ct));
+        {
+            var r = await _svc.DeleteAsync(id, ct);
+            return StatusCode(r.StatusCode, r);
+        }
     }
 }

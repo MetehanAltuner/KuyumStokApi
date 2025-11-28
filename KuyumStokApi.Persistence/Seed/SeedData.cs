@@ -33,6 +33,9 @@ public static class SeedData
             logger.LogInformation("  → LifecycleActions seeding...");
             await SeedLifecycleActionsAsync(db, logger);
 
+            logger.LogInformation("  → MonthlyTargets seeding...");
+            await SeedMonthlyTargetsAsync(db, logger);
+
             // Değişiklikleri kaydet
             await db.SaveChangesAsync();
 
@@ -189,6 +192,64 @@ public static class SeedData
         }
 
         logger.LogInformation("    ✓ {Count} lifecycle action işlendi", defaultActions.Length);
+    }
+
+    /// <summary>
+    /// MonthlyTargets tablosuna mevcut mağazalar için mevcut ay için default hedef ekler/günceller.
+    /// </summary>
+    private static async Task SeedMonthlyTargetsAsync(AppDbContext db, ILogger logger)
+    {
+        var now = DateTime.UtcNow;
+        var currentYear = now.Year;
+        var currentMonth = now.Month;
+        var defaultTargetAmount = 100000m; // Default 100.000 TL
+
+        // Tüm aktif mağazaları al
+        var stores = await db.Stores
+            .Where(s => !s.IsDeleted && s.IsActive)
+            .ToListAsync();
+
+        foreach (var store in stores)
+        {
+            // StoreId + Year + Month kombinasyonu için unique kontrol
+            var existing = await db.MonthlyTargets
+                .FirstOrDefaultAsync(mt => mt.StoreId == store.Id 
+                                         && mt.Year == currentYear 
+                                         && mt.Month == currentMonth
+                                         && !mt.IsDeleted);
+
+            if (existing != null)
+            {
+                // Varsa güncelle (sadece UpdatedAt)
+                existing.UpdatedAt = now;
+                existing.IsActive = true;
+                existing.IsDeleted = false;
+                
+                logger.LogDebug("    ↻ MonthlyTarget güncellendi: StoreId={StoreId}, Year={Year}, Month={Month}", 
+                    store.Id, currentYear, currentMonth);
+            }
+            else
+            {
+                // Yoksa ekle
+                var newTarget = new MonthlyTargets
+                {
+                    StoreId = store.Id,
+                    Year = currentYear,
+                    Month = currentMonth,
+                    TargetAmount = defaultTargetAmount,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                    IsActive = true,
+                    IsDeleted = false
+                };
+
+                await db.MonthlyTargets.AddAsync(newTarget);
+                logger.LogDebug("    + MonthlyTarget eklendi: StoreId={StoreId}, Year={Year}, Month={Month}, TargetAmount={TargetAmount}", 
+                    store.Id, currentYear, currentMonth, defaultTargetAmount);
+            }
+        }
+
+        logger.LogInformation("    ✓ {Count} monthly target işlendi", stores.Count);
     }
 }
 

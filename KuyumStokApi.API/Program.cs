@@ -9,6 +9,7 @@ using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.Filters;
 using System.Text;
 using KuyumStokApi.Application.Interfaces.Auth;
+using KuyumStokApi.API.Hubs;
 static byte[] DecodeKey(string? b64)
 {
     if (string.IsNullOrWhiteSpace(b64))
@@ -23,6 +24,7 @@ var builder = WebApplication.CreateBuilder(args);
 var cfg = builder.Configuration;
 
 builder.Services.AddControllers();
+builder.Services.AddSignalR();
 
 builder.Services.AddPersistence(cfg);
 builder.Services.AddInfrastructure(cfg);
@@ -132,6 +134,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<DashboardHub>("/hubs/dashboard");
 
 // 🔄 Veritabanı migration ve seed data (app.Run öncesi!)
 await app.MigrateAndSeedAsync();

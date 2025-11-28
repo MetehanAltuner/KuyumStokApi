@@ -72,12 +72,13 @@ alwaysApply: true
 - **Stocks**: ProductVariantId, BranchId, Quantity, Barcode, QrCode, CreatedAt/UpdatedAt, gramaj ve fiziksel alanlar (Gram, Thickness, Width, StoneType, Carat, Milyem, Color); navigation `Branch`, `ProductVariant`, `ProductLifecycles`, `PurchaseDetails`, `SaleDetails`.
 - **Stores**: Name, CreatedAt/UpdatedAt, soft-delete + `IsActive`; navigation `Branches`.
 - **Users**: Username, PasswordHash/Salt, FirstName, LastName, RoleId, BranchId, CreatedAt/UpdatedAt, `IsActive`, soft-delete alanları; navigation `Branch`, `Role`, koleksiyonlar `ProductLifecycles`, `Purchases`, `Sales`.
-- **ThermalPrinters** (yeni): BranchId, Name, IpAddress, Port, Description, CreatedAt/UpdatedAt, soft-delete alanları, `IsActive`; navigation `Branch`.
+- **ThermalPrinters**: BranchId, Name, IpAddress, Port, Description, CreatedAt/UpdatedAt, soft-delete alanları, `IsActive`; navigation `Branch`.
+- **MonthlyTargets** (yeni): StoreId, Year, Month, TargetAmount, CreatedAt/UpdatedAt, soft-delete alanları, `IsActive`; navigation `Store`; unique constraint (StoreId, Year, Month).
 
 ## Persistence Katmanı İncelemesi (Tamamlandı)
 
 - **AppDbContext (Ana)**:
-  - DbSet'ler: tüm domain entity'leri (`BankTransactions`, `Banks`, `Branches`, `Customers`, `LifecycleActions`, `Limits`, `PaymentMethods`, `ProductCategories`, `ProductLifecycles`, `ProductTypes`, `ProductVariants`, `PurchaseDetails`, `Purchases`, `Roles`, `SaleDetails`, `SalePayments`, `Sales`, `Stocks`, `Stores`, `ThermalPrinters`, `Users`).
+  - DbSet'ler: tüm domain entity'leri (`BankTransactions`, `Banks`, `Branches`, `Customers`, `LifecycleActions`, `Limits`, `MonthlyTargets`, `PaymentMethods`, `ProductCategories`, `ProductLifecycles`, `ProductTypes`, `ProductVariants`, `PurchaseDetails`, `Purchases`, `Roles`, `SaleDetails`, `SalePayments`, `Sales`, `Stocks`, `Stores`, `ThermalPrinters`, `Users`).
   - `OnModelCreating`:
     - Tüm tablolar snake_case isimleriyle (`ToTable("banks")` vb.).
     - Default değerler: `CreatedAt`/`UpdatedAt` için `CURRENT_TIMESTAMP`; `IsActive` true, `IsDeleted` false; `PasswordSalt` default boş string.
@@ -100,12 +101,14 @@ alwaysApply: true
   - `SeedRolesAsync` → Admin/Manager/Cashier/Viewer rollerini upsert (IsActive true, IsDeleted false, UpdatedAt now).
   - `SeedPaymentMethodsAsync` → "Nakit", "Kredi Kartı", "Havale/EFT".
   - `SeedLifecycleActionsAsync` → Purchase/Sale/Transfer/Count/Adjustment/Damage/Lost.
+  - `SeedMonthlyTargetsAsync` → Mevcut mağazalar için mevcut ay için default 100.000 TL hedef ekler (upsert mantığı).
   - Hata durumunda rollback, rethrow.
 - **Migrations**:
   - `20251109144018_InitialCreate` → tüm temel tablolar ve ilişkiler; unique index'ler (`users.username`, `stocks.barcode`), defaults (`CURRENT_TIMESTAMP`), bool default değerleri, FK'ler; limits, purchases, sales, product_lifecycles vb. oluşturur.
   - `20251109151523_AddSalePaymentsAndMultiPaymentSupport` → içerik boş (placeholder; gerçek değişiklikler sonraki migration'da uygulanmış).
   - `20251109161544_AddSalePaymentsTable` → `SalePayments` tablosunu snake_case'e çevirir, timestamp default'larını ekler, FK isimlerini günceller.
   - `20251110071139_UnifiedReceiptAndFavorites` → `stocks.color`, `product_variants.is_favorite` (default false) kolonlarını ekler; `customers.national_id` (varchar(11)) + unique index.
+  - `20251128213011_AddMonthlyTargetsTable` → `monthly_targets` tablosunu oluşturur; unique index `uq_monthly_targets_store_year_month` (StoreId, Year, Month); FK constraint `monthly_targets_store_id_fkey`.
   - `AppDbContextModelSnapshot` güncel şemayı yansıtır (9.0.10 EF sürümü, tüm default değer ve ilişki ayarları).
 
 ## Application Katmanı İncelemesi (Tamamlandı)
@@ -140,7 +143,7 @@ alwaysApply: true
   - `StockFilter` record (Query, BranchId, ProductTypeId, ProductVariantId, Gram aralıkları, Updated aralığı).
   - `FavoriteProductDto`.
   - `StockVariantDetailByStoreDto` (nested `BranchBlock`, `StockChip`).
-- **Reports DTO'ları**: `ReportDateRange`, `ReportTrendGranularity` enum, `MetricItemDto`, `TrendPointDto`, rapor modelleri (`StoreOverviewReportDto`, `BranchOverviewReportDto`, `UserPerformanceReportDto`, `SalesTrendReportDto`).
+- **Dashboard DTO'ları**: `LiveCountersDto`, `DailySummaryDto`, `AnomalyDto`, `MonthlyTargetDto`, `ReminderDto`, `TopProductDto`, `WorkloadEstimateDto`, `BranchComparisonDto`, `ProfitLossDto`, `RiskScoreLegendDto`, `RiskScoreRangeDto`.
 - **Store DTO'ları**: `StoreDto` (BranchCount alanı), `StoreCreateDto`, `StoreUpdateDto`, `StoreFilter`.
 - **Auth Interfaces**:
   - `ICurrentUserContext`: IsAuthenticated/UserId/BranchId/UserName.
@@ -165,7 +168,7 @@ alwaysApply: true
   - `IStoresService`: sayfalama, CRUD, set active, hard delete.
   - `IThermalPrintersService`: paged liste, `GetById`, `Create`, `Update`, `Delete`, `HardDelete`.
   - `IUserService`: `LoginAsync`, `RegisterAsync`, `UserExistsAsync`, `ValidatePasswordAsync`, `ValidateRegisterAsync`.
-  - `IReportsService`: rol bazlı erişimle mağaza/şube/kullanıcı raporları ve satış trendi.
+  - `IDashboardService`: `GetLiveCountersAsync`, `GetWeeklyTrendAsync`, `GetDailySummaryAsync`, `GetAnomaliesAsync`, `GetMonthlyTargetAsync`, `GetRemindersAsync`, `GetTopProductsAsync`, `GetWorkloadEstimateAsync`, `GetBranchComparisonAsync`, `GetProfitLossAsync`, `GetRiskScoreLegendAsync`.
 
 ## Infrastructure Katmanı İncelemesi (Tamamlandı)
 
@@ -202,7 +205,7 @@ alwaysApply: true
   - `StoresService`: paged (include deleted, active filters) with branch count; `Create`, `Update`, `Delete` (guard branches), `HardDelete`, `SetActive`, `GetById`.
   - `ThermalPrintersService`: branch başına tek yazıcı kuralı, paged list, detail, create/update/delete/hard delete; IP/port ve branch doğrulaması yapıyor.
   - `UserService`: username normalization/lowercase; `RegisterAsync` validates username (PasswordPolicy), ensures unique & valid role/branch, hashes password (salt/pepper), stores `Users`; `LoginAsync` verifies, returns JWT; `UserExistsAsync`; `ValidatePasswordAsync` / `ValidateRegisterAsync` returning `ApiResult`.
-  - `ReportsService`: mevcut kullanıcının rolüne göre erişim kapsamı çözümlenir; mağaza genel bakışı, şube performansı, kullanıcı performansı ve satış trendi için metrik/top list/trend verileri üretir (trend için günlük baz alınır, isteğe göre haftalık/aylık gruplama yapılır).
+  - `DashboardService`: dashboard verilerini toplar; `GetLiveCountersAsync` (son satış zamanı, bugünkü işlem sayısı), `GetWeeklyTrendAsync` (haftalık trend), `GetDailySummaryAsync` (gün sonu raporu), `GetAnomaliesAsync` (anomali algılama), `GetMonthlyTargetAsync` (aylık hedef - `MonthlyTargets` tablosundan okur), `GetRemindersAsync` (kritik stok, satış verisi yoksa uygun mesaj), `GetTopProductsAsync` (en çok satan ürünler), `GetWorkloadEstimateAsync` (hibrit yaklaşım: mutlak eşikler + yüzde bazlı), `GetBranchComparisonAsync` (şube karşılaştırması), `GetProfitLossAsync` (kar-zarar), `GetRiskScoreLegendAsync` (risk skor sözlüğü); SignalR broadcast desteği.
 
 ## API Katmanı İncelemesi (Tamamlandı)
 
@@ -231,13 +234,78 @@ alwaysApply: true
   - `GET` paged (branch filter), `GET variant/{id}/detail`, `GET {id}`, `GET by-barcode/{barcode}`, `POST`, `PUT`, `DELETE`, `DELETE /hard`, `GET /favorites`.
 - **ThermalPrintersController**:
   - `GET` paged, `GET {id}`, `POST`, `PUT`, `DELETE`, `DELETE /hard` (Authorize).
-- **ReportsController**:
-  - `GET /api/reports/store-overview` (tarih aralığı opsiyonel) → mağaza genel metrikleri.
-  - `GET /api/reports/branch-overview` → şube özel özet; `branchId` verilmezse mevcut kullanıcı şubesi.
-  - `GET /api/reports/user-performance` → kullanıcı bazlı metrik; yetkiye göre başka kullanıcılar.
-  - `GET /api/reports/sales-trend` → günlük/haftalık/aylık trend grafiği (`granularity` query paramı ile Daily/Weekly/Monthly).
+- **DashboardController**:
+  - `GET /api/dashboard/live-counters` → gerçek zamanlı canlı sayaçlar.
+  - `GET /api/dashboard/weekly-trend` → haftalık trend grafik verisi.
+  - `GET /api/dashboard/daily-summary` → gün sonu raporu (tarih opsiyonel).
+  - `GET /api/dashboard/anomalies` → anomali algılama.
+  - `GET /api/dashboard/monthly-target` → aylık satış hedefi (veritabanından okur).
+  - `GET /api/dashboard/reminders` → hatırlatıcılar ve ajanda.
+  - `GET /api/dashboard/top-products` → en çok satan ürünler (limit ve period parametreleri).
+  - `GET /api/dashboard/workload-estimate` → günlük iş yükü tahmini (hibrit yaklaşım).
+  - `GET /api/dashboard/branch-comparison` → şube karşılaştırması.
+  - `GET /api/dashboard/profit-loss` → kar-zarar tablosu (period parametresi).
+  - `GET /api/dashboard/risk-score-legend` → risk skor sözlüğü (0-100 aralığı).
 - **Program.cs HttpContext CurrentUser**: `Services.AddScoped<ICurrentUserContext, CurrentUserContext>()` (Application implementation injeksiyonu).
 - **Swagger Notu**: Açıklama token girerken `'Bearer '` yazma, sadece JWT gir.
+
+## Known Issues ve Tutarsızlıklar
+
+### Entity Property Tutarsızlıkları
+- **Banks**: `CreatedAt` property'si YOKTUR (sadece `UpdatedAt` var). Bu tutarsızlıktır, dokümante edilmelidir.
+- **PaymentMethods**: `CreatedAt` ve `UpdatedAt` property'leri YOKTUR. Bu tutarsızlıktır, dokümante edilmelidir.
+- **BankTransactions**: Soft delete YOKTUR (mantıklı - audit için kalıcı tutulmalı).
+- **Limits**: Soft delete YOKTUR (mantıklı - dinamik limitler).
+- **LifecycleActions**: Soft delete ve CreatedAt/UpdatedAt YOKTUR (referans tablo).
+
+### Code Quality İyileştirmeleri
+- **Double Await Pattern (Düzeltildi ✅)**: Controller'larda aynı servis metodunu iki kez çağırmak yerine değişkene atama pattern'i kullanılmalı. Tüm controller'larda düzeltildi (SalesController, PurchaseController, CustomersController, ProductLifecyclesController, LifecycleActionsController).
+- **IProductVariantService Namespace Hatası**: `using` statement'ında yanlış namespace (iki kez yazılmış). Düzeltilmelidir.
+- **Interface İsim Tutarsızlığı**: `ICustomerService` → `ICustomersService` olmalı (çoğul, diğer servislerle uyumlu).
+
+### Controller Endpoint Özeti
+- **Toplam**: 19 Controller, 112+ Endpoint (ReportsController kaldırıldı, DashboardController eklendi)
+- **AuthController**: 4 endpoint (register, login, validate-password, validate-register)
+- **BanksController**: 7 endpoint (CRUD + /active + /hard)
+- **BranchesController**: 7 endpoint (CRUD + /active + /hard)
+- **CustomersController**: 5 endpoint (CRUD)
+- **DashboardController**: 11 endpoint (live-counters, weekly-trend, daily-summary, anomalies, monthly-target, reminders, top-products, workload-estimate, branch-comparison, profit-loss, risk-score-legend)
+- **LifecycleActionsController**: 5 endpoint (CRUD)
+- **LimitsController**: 5 endpoint (CRUD)
+- **PaymentMethodsController**: 5 endpoint (CRUD)
+- **ProductCategoriesController**: 7 endpoint (CRUD + /active + /hard)
+- **ProductLifecyclesController**: 3 endpoint (GET paged, GET id, POST)
+- **ProductTypeController**: 7 endpoint (CRUD + /active + /hard)
+- **ProductVariantController**: 7 endpoint (CRUD + /active + /hard)
+- **PurchaseController**: 3 endpoint (GET paged, GET id, POST)
+- **RolesController**: 5 endpoint (GET all, GET id, POST, PUT, DELETE)
+- **SalesController**: 3 endpoint (POST unified, GET paged, GET line id)
+- **StocksController**: 9 endpoint (CRUD + /variant/{id}/detail + /by-barcode/{barcode} + /favorites + /hard)
+- **StoresController**: 7 endpoint (CRUD + /active + /hard)
+- **ThermalPrintersController**: 6 endpoint (CRUD + /hard)
+- **UsersController**: 5 endpoint (GET paged, GET id, PUT, DELETE, DELETE /hard)
+
+### Servis Metod Özeti
+- **IBanksService**: 7 metod (GetPaged, GetById, Create, Update, Delete, HardDelete, SetActive)
+- **IBranchesService**: 7 metod (GetPaged, GetById, Create, Update, Delete, HardDelete, SetActive)
+- **IStoresService**: 7 metod (GetPaged, GetById, Create, Update, Delete, HardDelete, SetActive)
+- **ICustomersService**: 5 metod (GetPaged, GetById, Create, Update, Delete)
+- **IProductCategoryService**: 7 metod (GetPaged, GetById, Create, Update, Delete, HardDelete, SetActive)
+- **IProductTypeService**: 7 metod (GetPaged, GetById, Create, Update, Delete, HardDelete, SetActive)
+- **IProductVariantService**: 7 metod (GetPaged, GetById, Create, Update, Delete, HardDelete, SetActive)
+- **IStocksService**: 9 metod (GetPaged, GetVariantDetailInStore, GetById, GetByBarcode, Create, Update, Delete, HardDelete, GetFavorites)
+- **ISalesService**: 3 metod (CreateUnified, GetPaged, GetLineById)
+- **IPurchasesService**: 3 metod (Create, GetPaged, GetById)
+- **IRolesService**: 5 metod (GetAll, GetById, Create, Update, Delete)
+- **ILimitsService**: 5 metod (GetPaged, GetById, Create, Update, Delete)
+- **ILifecycleActionsService**: 5 metod (GetPaged, GetById, Create, Update, Delete)
+- **IProductLifecyclesService**: 3 metod (GetPaged, GetById, Create)
+- **IPaymentMethodsService**: 5 metod (GetPaged, GetById, Create, Update, Delete)
+- **IThermalPrintersService**: 6 metod (GetPaged, GetById, Create, Update, Delete, HardDelete)
+- **IUserService**: 10 metod (Login, Register, UserExists, ValidatePassword, ValidateRegister, GetPaged, GetById, Update, Delete, HardDelete)
+- **IDashboardService**: 11 metod (GetLiveCounters, GetWeeklyTrend, GetDailySummary, GetAnomalies, GetMonthlyTarget, GetReminders, GetTopProducts, GetWorkloadEstimate, GetBranchComparison, GetProfitLoss, GetRiskScoreLegend)
+- **IJwtService**: 1 metod (GenerateToken)
+- **IPasswordHasher**: 3 metod (GenerateSalt, Hash, Verify)
 
 
 

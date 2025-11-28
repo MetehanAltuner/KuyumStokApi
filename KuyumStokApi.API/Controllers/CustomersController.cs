@@ -17,7 +17,10 @@ namespace KuyumStokApi.API.Controllers
         [HttpGet]
         [Authorize]
         public async Task<IActionResult> GetPaged([FromQuery] CustomerFilter filter, CancellationToken ct)
-            => StatusCode((await _svc.GetPagedAsync(filter, ct)).StatusCode, await _svc.GetPagedAsync(filter, ct));
+        {
+            var r = await _svc.GetPagedAsync(filter, ct);
+            return StatusCode(r.StatusCode, r);
+        }
 
         /// <summary>Id’ye göre müşteri detayını getirir.</summary>
         [HttpGet("{id:int}")]

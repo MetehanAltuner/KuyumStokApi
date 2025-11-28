@@ -54,6 +54,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<Users> Users { get; set; }
 
+    public virtual DbSet<MonthlyTargets> MonthlyTargets { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<BankTransactions>(entity =>
@@ -662,6 +664,43 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.Branch).WithMany(p => p.ThermalPrinters)
                 .HasForeignKey(d => d.BranchId)
                 .HasConstraintName("thermal_printers_branch_id_fkey");
+        });
+
+        modelBuilder.Entity<MonthlyTargets>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("monthly_targets_pkey");
+
+            entity.ToTable("monthly_targets");
+
+            entity.HasIndex(e => new { e.StoreId, e.Year, e.Month }, "uq_monthly_targets_store_year_month")
+                .IsUnique()
+                .HasFilter("store_id IS NOT NULL AND is_deleted = false");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.StoreId).HasColumnName("store_id");
+            entity.Property(e => e.Year).HasColumnName("year");
+            entity.Property(e => e.Month).HasColumnName("month");
+            entity.Property(e => e.TargetAmount)
+                .HasPrecision(18, 2)
+                .HasColumnName("target_amount");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnName("updated_at");
+            entity.Property(e => e.IsDeleted)
+                .HasDefaultValue(false)
+                .HasColumnName("is_deleted");
+            entity.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+            entity.Property(e => e.DeletedBy).HasColumnName("deleted_by");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("is_active");
+
+            entity.HasOne(d => d.Store).WithMany()
+                .HasForeignKey(d => d.StoreId)
+                .HasConstraintName("monthly_targets_store_id_fkey");
         });
 
         OnModelCreatingPartial(modelBuilder);
