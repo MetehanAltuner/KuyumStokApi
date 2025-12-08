@@ -33,6 +33,8 @@ public partial class Users
 
     public int? DeletedBy { get; set; }
 
+    public bool MustChangePassword { get; set; }
+
     public virtual Branches? Branch { get; set; }
 
     public virtual ICollection<ProductLifecycles> ProductLifecycles { get; set; } = new List<ProductLifecycles>();
@@ -42,4 +44,6 @@ public partial class Users
     public virtual Roles? Role { get; set; }
 
     public virtual ICollection<Sales> Sales { get; set; } = new List<Sales>();
+
+    public virtual ICollection<RefreshTokens> RefreshTokens { get; set; } = new List<RefreshTokens>();
 }

@@ -4,6 +4,7 @@ using KuyumStokApi.Application.DTOs.Reports;
 using KuyumStokApi.Application.Interfaces.Auth;
 using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Persistence.Contexts;
+using KuyumStokApi.Application.Hubs;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -22,7 +23,7 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
         private readonly IReportsService _reportsService;
         private readonly KuyumStokApi.Infrastructure.Services.AnomalyDetectionService.AnomalyDetectionService _anomalyDetectionService;
         private readonly KuyumStokApi.Infrastructure.Services.WorkloadEstimationService.WorkloadEstimationService _workloadEstimationService;
-        private readonly IHubContext<Microsoft.AspNetCore.SignalR.Hub>? _hubContext;
+        private readonly IHubContext<DashboardHub>? _hubContext;
         private readonly ILogger<DashboardService> _logger;
 
         private static readonly string[] OwnerRoleHints = { "owner", "admin" };
@@ -34,7 +35,7 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
             IReportsService reportsService,
             KuyumStokApi.Infrastructure.Services.AnomalyDetectionService.AnomalyDetectionService anomalyDetectionService,
             KuyumStokApi.Infrastructure.Services.WorkloadEstimationService.WorkloadEstimationService workloadEstimationService,
-            IHubContext<Microsoft.AspNetCore.SignalR.Hub>? hubContext = null,
+            IHubContext<DashboardHub>? hubContext = null,
             ILogger<DashboardService> logger = null!)
         {
             _db = db;
@@ -973,6 +974,27 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
 
         #region Helpers
 
+        /// <summary>
+        /// Kullanıcı bilgisi olmadan tüm şubeler için scope oluşturur (background service için)
+        /// </summary>
+        private async Task<ReportScope> ResolveScopeForBackgroundServiceAsync(CancellationToken ct)
+        {
+            // Background service için tüm aktif şubeleri al (owner gibi davran)
+            var branchIds = await _db.Branches.AsNoTracking()
+                .Where(b => !b.IsDeleted)
+                .Select(b => b.Id)
+                .ToListAsync(ct);
+
+            return new ReportScope
+            {
+                UserId = 0, // Background service için kullanıcı yok
+                BranchId = null,
+                StoreId = null,
+                RoleName = "system", // System olarak işaretle
+                AccessibleBranchIds = branchIds
+            };
+        }
+
         private async Task<ReportScope> ResolveScopeAsync(CancellationToken ct)
         {
             if (!_currentUser.IsAuthenticated || !_currentUser.UserId.HasValue)
@@ -1101,6 +1123,141 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
         }
 
         #endregion
+
+        public async Task<ApiResult<DashboardSummaryDto>> GetSummaryAsync(CancellationToken ct = default)
+        {
+            try
+            {
+                var summary = new DashboardSummaryDto();
+
+                // Sadece parametresiz ve broadcast yapılmayan metodları paralel olarak çağır
+                var weeklyTrendTask = GetWeeklyTrendAsync(ct);
+                var monthlyTargetTask = GetMonthlyTargetAsync(ct);
+                var remindersTask = GetRemindersAsync(ct);
+                var workloadEstimateTask = GetWorkloadEstimateAsync(ct);
+                var branchComparisonTask = GetBranchComparisonAsync(ct);
+                var riskScoreLegendTask = GetRiskScoreLegendAsync(ct);
+
+                // Her task'ı bağımsız olarak işle (bir hata diğerlerini etkilemez)
+                // Weekly Trend
+                try
+                {
+                    var weeklyTrendResult = await weeklyTrendTask;
+                    if (weeklyTrendResult.Success && weeklyTrendResult.Data != null)
+                    {
+                        summary.WeeklyTrend = weeklyTrendResult.Data;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("WeeklyTrend başarısız: {Message}", weeklyTrendResult.Message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "WeeklyTrend alınırken hata oluştu");
+                }
+
+                // Monthly Target
+                try
+                {
+                    var monthlyTargetResult = await monthlyTargetTask;
+                    if (monthlyTargetResult.Success && monthlyTargetResult.Data != null)
+                    {
+                        summary.MonthlyTarget = monthlyTargetResult.Data;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("MonthlyTarget başarısız: {Message}", monthlyTargetResult.Message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "MonthlyTarget alınırken hata oluştu");
+                }
+
+                // Reminders
+                try
+                {
+                    var remindersResult = await remindersTask;
+                    if (remindersResult.Success && remindersResult.Data != null)
+                    {
+                        summary.Reminders = remindersResult.Data;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Reminders başarısız: {Message}", remindersResult.Message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Reminders alınırken hata oluştu");
+                }
+
+                // Workload Estimate
+                try
+                {
+                    var workloadEstimateResult = await workloadEstimateTask;
+                    if (workloadEstimateResult.Success && workloadEstimateResult.Data != null)
+                    {
+                        summary.WorkloadEstimate = workloadEstimateResult.Data;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("WorkloadEstimate başarısız: {Message}", workloadEstimateResult.Message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "WorkloadEstimate alınırken hata oluştu");
+                }
+
+                // Branch Comparison
+                try
+                {
+                    var branchComparisonResult = await branchComparisonTask;
+                    if (branchComparisonResult.Success && branchComparisonResult.Data != null)
+                    {
+                        summary.BranchComparison = branchComparisonResult.Data;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("BranchComparison başarısız: {Message}", branchComparisonResult.Message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "BranchComparison alınırken hata oluştu");
+                }
+
+                // Risk Score Legend
+                try
+                {
+                    var riskScoreLegendResult = await riskScoreLegendTask;
+                    if (riskScoreLegendResult.Success && riskScoreLegendResult.Data != null)
+                    {
+                        summary.RiskScoreLegend = riskScoreLegendResult.Data;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("RiskScoreLegend başarısız: {Message}", riskScoreLegendResult.Message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "RiskScoreLegend alınırken hata oluştu");
+                }
+
+                // Summary endpoint'i broadcast yapmaz, sadece tek seferlik veri döndürür
+                // Broadcast yapan endpoint'ler: live-counters, daily-summary, anomalies
+
+                return ApiResult<DashboardSummaryDto>.Ok(summary, "Dashboard özeti hazırlandı", 200);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Dashboard özeti hazırlanırken beklenmeyen hata oluştu");
+                return ApiResult<DashboardSummaryDto>.Fail("Dashboard özeti hazırlanırken bir hata oluştu.", statusCode: 500);
+            }
+        }
 
         public async Task<ApiResult<RiskScoreLegendDto>> GetRiskScoreLegendAsync(CancellationToken ct = default)
         {

@@ -79,8 +79,10 @@ namespace KuyumStokApi.Infrastructure.Services.ProductTypService
 
         public async Task<ApiResult<ProductTypeDto>> GetByIdAsync(int id, CancellationToken ct = default)
         {
-            var t = await _db.ProductTypes.AsNoTracking().IgnoreQueryFilters()
-                        .FirstOrDefaultAsync(x => x.Id == id, ct);
+            var t = await _db.ProductTypes.AsNoTracking()
+                .IgnoreQueryFilters()
+                .Include(t => t.Category)
+                .FirstOrDefaultAsync(x => x.Id == id, ct);
             if (t is null)
                 return ApiResult<ProductTypeDto>.Fail("Ürün türü bulunamadı", statusCode: 404);
 

@@ -30,6 +30,8 @@ using KuyumStokApi.Infrastructure.Services.ReportsService;
 using KuyumStokApi.Infrastructure.Services.DashboardService;
 using KuyumStokApi.Infrastructure.Services.AnomalyDetectionService;
 using KuyumStokApi.Infrastructure.Services.WorkloadEstimationService;
+using KuyumStokApi.Application.Hubs;
+using Microsoft.AspNetCore.SignalR;
 
 namespace KuyumStokApi.Infrastructure
 {
@@ -52,6 +54,8 @@ namespace KuyumStokApi.Infrastructure
             services.AddSingleton<IJwtService, JwtService>();
             services.AddSingleton<IPasswordHasher, PasswordHasher.PasswordHasher>();
             services.AddScoped<IUserService, UserService>();
+            services.AddScoped<IRefreshTokenService, KuyumStokApi.Infrastructure.Services.RefreshTokenService.RefreshTokenService>();
+            services.AddScoped<ITokenBlacklistService, KuyumStokApi.Infrastructure.Services.TokenBlacklistService.TokenBlacklistService>();
             services.AddScoped<IProductCategoryService, ProductCategoryService>();
             services.AddScoped<IBanksService, BanksService>();
             services.AddHttpContextAccessor();
@@ -73,7 +77,30 @@ namespace KuyumStokApi.Infrastructure
             services.AddScoped<IReportsService, ReportsService>();
             services.AddScoped<AnomalyDetectionService>();
             services.AddScoped<WorkloadEstimationService>();
-            services.AddScoped<IDashboardService, DashboardService>();
+            
+            // DashboardService için IHubContext<DashboardHub> inject et
+            services.AddScoped<IDashboardService>(sp =>
+            {
+                var db = sp.GetRequiredService<KuyumStokApi.Persistence.Contexts.AppDbContext>();
+                var currentUser = sp.GetRequiredService<KuyumStokApi.Application.Interfaces.Auth.ICurrentUserContext>();
+                var reportsService = sp.GetRequiredService<IReportsService>();
+                var anomalyDetectionService = sp.GetRequiredService<AnomalyDetectionService>();
+                var workloadEstimationService = sp.GetRequiredService<WorkloadEstimationService>();
+                var hubContext = sp.GetService<IHubContext<DashboardHub>>();
+                var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<DashboardService>>();
+                
+                return new DashboardService(
+                    db,
+                    currentUser,
+                    reportsService,
+                    anomalyDetectionService,
+                    workloadEstimationService,
+                    hubContext,
+                    logger);
+            });
+
+            // Background service'i kaydet
+            services.AddHostedService<DashboardBackgroundService>();
 
             return services;
         }

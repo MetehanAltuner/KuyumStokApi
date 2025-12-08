@@ -16,13 +16,15 @@ namespace KuyumStokApi.Infrastructure.Services.UserService
     {
         private readonly AppDbContext _db;
         private readonly IPasswordHasher _hasher;
-        private readonly IJwtService _jwt; // Login'de token üreteceğiz
+        private readonly IJwtService _jwt;
+        private readonly IRefreshTokenService _refreshTokenService;
 
-        public UserService(AppDbContext db, IPasswordHasher hasher, IJwtService jwt)
+        public UserService(AppDbContext db, IPasswordHasher hasher, IJwtService jwt, IRefreshTokenService refreshTokenService)
         {
             _db = db;
             _hasher = hasher;
             _jwt = jwt;
+            _refreshTokenService = refreshTokenService;
         }
 
         public async Task<bool> UserExistsAsync(string username)
@@ -35,13 +37,35 @@ namespace KuyumStokApi.Infrastructure.Services.UserService
         {
             if (dto is null) throw new ArgumentNullException(nameof(dto));
 
-            // --- Username doğrulama + normalize ---
-            PasswordPolicy.EnsureValidUsername(dto.Username);
-            var username = NormalizeUsername(dto.Username);
-
-            var exists = await _db.Users.AnyAsync(u => u.Username.ToLower() == username);
-            if (exists)
-                throw new InvalidOperationException("Kullanıcı adı zaten mevcut.");
+            // --- Username oluşturma veya doğrulama ---
+            string username;
+            if (string.IsNullOrWhiteSpace(dto.Username))
+            {
+                // Username boşsa otomatik oluştur (FirstName+LastName kombinasyonu)
+                var firstPart = (dto.FirstName ?? "").Trim().ToLowerInvariant();
+                var lastPart = (dto.LastName ?? "").Trim().ToLowerInvariant();
+                if (string.IsNullOrWhiteSpace(firstPart) && string.IsNullOrWhiteSpace(lastPart))
+                    throw new InvalidOperationException("Username, FirstName veya LastName en az biri dolu olmalıdır.");
+                
+                username = $"{firstPart}.{lastPart}".Trim('.');
+                
+                // Username unique değilse numara ekle
+                var baseUsername = username;
+                var counter = 1;
+                while (await _db.Users.AnyAsync(u => u.Username.ToLower() == username))
+                {
+                    username = $"{baseUsername}{counter}";
+                    counter++;
+                }
+            }
+            else
+            {
+                PasswordPolicy.EnsureValidUsername(dto.Username);
+                username = NormalizeUsername(dto.Username);
+                var exists = await _db.Users.AnyAsync(u => u.Username.ToLower() == username);
+                if (exists)
+                    throw new InvalidOperationException("Kullanıcı adı zaten mevcut.");
+            }
 
             // --- Rol / Şube var mı? (varsalar kontrol et) ---
             if (dto.RoleId.HasValue)
@@ -56,24 +80,39 @@ namespace KuyumStokApi.Infrastructure.Services.UserService
                 if (!branchOk) throw new InvalidOperationException("Geçersiz şube.");
             }
 
-            // --- Parola politikası ---
-            PasswordPolicy.EnsureStrong(dto.Password, username, dto.FirstName, dto.LastName);
+            // --- Parola işleme ---
+            string? hash = null;
+            string? salt = null;
+            bool mustChangePassword = false;
 
-            // --- Hash & persist ---
-            var salt = _hasher.GenerateSalt();
-            var hash = _hasher.Hash(dto.Password, salt);
+            if (string.IsNullOrWhiteSpace(dto.Password))
+            {
+                // Password boşsa: hash oluşturma, MustChangePassword = true
+                hash = string.Empty;
+                salt = string.Empty;
+                mustChangePassword = true;
+            }
+            else
+            {
+                // Password varsa: parola politikası kontrolü, hash oluştur
+                PasswordPolicy.EnsureStrong(dto.Password, username, dto.FirstName, dto.LastName);
+                salt = _hasher.GenerateSalt();
+                hash = _hasher.Hash(dto.Password, salt);
+                mustChangePassword = false;
+            }
 
             var now = DateTime.UtcNow;
             var user = new Users
             {
-                Username = username,  // normalize edilmiş
-                PasswordHash = hash,
-                PasswordSalt = salt,
+                Username = username,
+                PasswordHash = hash ?? string.Empty,
+                PasswordSalt = salt ?? string.Empty,
                 FirstName = dto.FirstName?.Trim(),
                 LastName = dto.LastName?.Trim(),
                 RoleId = dto.RoleId,
                 BranchId = dto.BranchId,
                 IsActive = true,
+                MustChangePassword = mustChangePassword,
                 CreatedAt = now,
                 UpdatedAt = now
             };
@@ -95,10 +134,25 @@ namespace KuyumStokApi.Infrastructure.Services.UserService
             if (user is null) return null;
             if (!(user.IsActive ?? false)) return null;
 
+            // Password kontrolü (password boşsa giriş yapılamaz)
+            if (string.IsNullOrWhiteSpace(user.PasswordHash) || string.IsNullOrWhiteSpace(user.PasswordSalt))
+                return null;
+
             var ok = _hasher.Verify(dto.Password, user.PasswordSalt, user.PasswordHash);
             if (!ok) return null;
 
-            return _jwt.GenerateToken(user);
+            // JWT token oluştur
+            var response = _jwt.GenerateToken(user);
+            
+            // Refresh token oluştur
+            var (refreshToken, refreshTokenExpiration) = await _refreshTokenService.GenerateRefreshTokenAsync(user.Id);
+            
+            // Response'a ekle
+            response.RefreshToken = refreshToken;
+            response.RefreshTokenExpiration = refreshTokenExpiration;
+            response.MustChangePassword = user.MustChangePassword;
+
+            return response;
         }
 
         public Task<ApiResult<PasswordCheckResultDto>> ValidatePasswordAsync(PasswordCheckRequestDto dto, CancellationToken ct = default)
@@ -120,13 +174,26 @@ namespace KuyumStokApi.Infrastructure.Services.UserService
 
         public async Task<ApiResult<RegisterValidationResultDto>> ValidateRegisterAsync(RegisterDto dto, CancellationToken ct = default)
         {
-            var errors = PasswordPolicy.ValidateUsername(dto.Username);
+            var errors = new List<string>();
 
-            var username = NormalizeUsername(dto.Username);
-
-            // benzersizlik
-            if (await _db.Users.AnyAsync(u => u.Username.ToLower() == username, ct))
-                errors.Add("Kullanıcı adı zaten mevcut.");
+            // Username validasyonu (opsiyonel)
+            string? username = null;
+            if (!string.IsNullOrWhiteSpace(dto.Username))
+            {
+                var usernameErrors = PasswordPolicy.ValidateUsername(dto.Username);
+                errors.AddRange(usernameErrors);
+                username = NormalizeUsername(dto.Username);
+                
+                // benzersizlik kontrolü
+                if (await _db.Users.AnyAsync(u => u.Username.ToLower() == username, ct))
+                    errors.Add("Kullanıcı adı zaten mevcut.");
+            }
+            else
+            {
+                // Username boşsa FirstName veya LastName kontrolü
+                if (string.IsNullOrWhiteSpace(dto.FirstName) && string.IsNullOrWhiteSpace(dto.LastName))
+                    errors.Add("Username, FirstName veya LastName en az biri dolu olmalıdır.");
+            }
 
             // rol/şube mevcudiyeti (gönderildiyse)
             if (dto.RoleId.HasValue && !await _db.Roles.AnyAsync(r => r.Id == dto.RoleId.Value, ct))
@@ -135,9 +202,10 @@ namespace KuyumStokApi.Infrastructure.Services.UserService
             if (dto.BranchId.HasValue && !await _db.Branches.AnyAsync(b => b.Id == dto.BranchId.Value, ct))
                 errors.Add("Geçersiz şube.");
 
-            // şifre kuralları
-            var passRes = PasswordPolicy.Validate(dto.Password, username, dto.FirstName, dto.LastName);
-            if (!passRes.IsValid) errors.AddRange(passRes.Errors);
+            // şifre kuralları (opsiyonel - sadece varsa kontrol et)
+            var passRes = PasswordPolicy.Validate(dto.Password ?? string.Empty, username ?? string.Empty, dto.FirstName, dto.LastName);
+            if (!string.IsNullOrWhiteSpace(dto.Password) && !passRes.IsValid)
+                errors.AddRange(passRes.Errors);
 
             var payload = new RegisterValidationResultDto
             {
@@ -243,6 +311,8 @@ namespace KuyumStokApi.Infrastructure.Services.UserService
                 var salt = _hasher.GenerateSalt();
                 entity.PasswordSalt = salt;
                 entity.PasswordHash = _hasher.Hash(dto.Password, salt);
+                // Password değiştiğinde MustChangePassword false yap
+                entity.MustChangePassword = false;
             }
 
             entity.FirstName = newFirst;
@@ -299,6 +369,7 @@ namespace KuyumStokApi.Infrastructure.Services.UserService
                 LastName = u.LastName,
                 IsActive = u.IsActive ?? false,
                 IsDeleted = u.IsDeleted,
+                MustChangePassword = u.MustChangePassword,
                 CreatedAt = u.CreatedAt,
                 UpdatedAt = u.UpdatedAt,
                 Role = u.Role == null

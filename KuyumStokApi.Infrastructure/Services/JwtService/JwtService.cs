@@ -97,6 +97,7 @@ namespace KuyumStokApi.Infrastructure.Services.JwtService
                 yield return new Claim("branch_id", user.BranchId.Value.ToString());
 
             yield return new Claim("is_active", user.IsActive ?? false ? "true" : "false");
+            yield return new Claim("must_change_password", user.MustChangePassword ? "true" : "false");
         }
     }
 

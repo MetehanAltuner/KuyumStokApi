@@ -9,7 +9,8 @@ using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.Filters;
 using System.Text;
 using KuyumStokApi.Application.Interfaces.Auth;
-using KuyumStokApi.API.Hubs;
+using KuyumStokApi.Application.Hubs;
+using Microsoft.Extensions.DependencyInjection;
 static byte[] DecodeKey(string? b64)
 {
     if (string.IsNullOrWhiteSpace(b64))
@@ -25,6 +26,18 @@ var cfg = builder.Configuration;
 
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
+
+// CORS yapılandırması (SignalR için gerekli)
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.WithOrigins("https://localhost:7292", "http://localhost:5235")
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials(); // SignalR için credentials gerekli
+    });
+});
 
 builder.Services.AddPersistence(cfg);
 builder.Services.AddInfrastructure(cfg);
@@ -50,6 +63,7 @@ builder.Services
 
         options.IncludeErrorDetails = true; // detay gelsin
 
+        // SignalR için JWT authentication desteği
         options.Events = new JwtBearerEvents
         {
             OnAuthenticationFailed = ctx =>
@@ -63,9 +77,42 @@ builder.Services
                 Console.WriteLine($"[JWT] Challenge: {ctx.Error} - {ctx.ErrorDescription}");
                 return Task.CompletedTask;
             },
-            OnTokenValidated = ctx =>
+            OnTokenValidated = async ctx =>
             {
+                // Token blacklist kontrolü
+                var jtiClaim = ctx.Principal?.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Jti);
+                if (jtiClaim != null)
+                {
+                    var tokenBlacklistService = ctx.HttpContext.RequestServices.GetRequiredService<KuyumStokApi.Application.Interfaces.Services.ITokenBlacklistService>();
+                    var isInvalidated = await tokenBlacklistService.IsTokenInvalidatedAsync(jtiClaim.Value);
+                    if (isInvalidated)
+                    {
+                        ctx.Fail("Token geçersiz kılınmış (logout yapılmış).");
+                        return;
+                    }
+                }
                 Console.WriteLine("[JWT] Token validated.");
+            },
+            OnMessageReceived = context =>
+            {
+                // SignalR için query string'den token al
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+                // Authorization header'dan da al
+                else if (context.Request.Headers.ContainsKey("Authorization"))
+                {
+                    var authHeader = context.Request.Headers["Authorization"].ToString();
+                    if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        context.Token = authHeader.Substring("Bearer ".Length).Trim();
+                    }
+                }
+                
                 return Task.CompletedTask;
             }
         };
@@ -129,6 +176,12 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// CORS (Authentication'dan önce olmalı)
+app.UseCors();
+
+// Static files (test HTML sayfası için)
+app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();

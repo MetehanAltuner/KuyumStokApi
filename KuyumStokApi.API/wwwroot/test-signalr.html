@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SignalR Dashboard Hub Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@7.0.0/dist/browser/signalr.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            padding: 30px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .connection-panel {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-connect {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-connect:hover {
+            background: #218838;
+        }
+
+        .btn-disconnect {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-disconnect:hover {
+            background: #c82333;
+        }
+
+        .btn-request {
+            background: #007bff;
+            color: white;
+        }
+
+        .btn-request:hover {
+            background: #0056b3;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .status {
+            padding: 12px;
+            border-radius: 6px;
+            margin-top: 15px;
+            font-weight: 600;
+        }
+
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.connecting {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .events-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .event-card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            border-left: 4px solid #667eea;
+        }
+
+        .event-card h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .event-card .timestamp {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 10px;
+        }
+
+        .event-card .data {
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .log {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+        }
+
+        .log-entry.info {
+            color: #4ec9b0;
+        }
+
+        .log-entry.error {
+            color: #f48771;
+        }
+
+        .log-entry.success {
+            color: #4ec9b0;
+        }
+
+        .log-entry.warning {
+            color: #dcdcaa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 SignalR Dashboard Hub Test</h1>
+        <p class="subtitle">Backend'inizden gelen broadcast'leri test edin</p>
+
+        <div class="connection-panel">
+            <div class="input-group">
+                <label for="hubUrl">Hub URL:</label>
+                <input type="text" id="hubUrl" value="https://localhost:7292/hubs/dashboard" placeholder="https://localhost:7292/hubs/dashboard">
+            </div>
+
+            <div class="input-group">
+                <label for="jwtToken">JWT Token (Opsiyonel - Test için boş bırakabilirsiniz):</label>
+                <input type="text" id="jwtToken" placeholder="JWT token'ınızı buraya yapıştırın">
+            </div>
+
+            <div class="button-group">
+                <button id="btnConnect" class="btn-connect" onclick="connect()">Bağlan</button>
+                <button id="btnDisconnect" class="btn-disconnect" onclick="disconnect()" disabled>Bağlantıyı Kes</button>
+                <button id="btnRequestSummary" class="btn-request" onclick="requestSummary()" disabled>Summary İste</button>
+            </div>
+
+            <div id="status" class="status disconnected">Bağlantı Yok</div>
+        </div>
+
+        <div class="events-grid">
+            <div class="event-card">
+                <h3>📊 LiveCountersUpdated</h3>
+                <div class="timestamp" id="liveCountersTime">Henüz veri gelmedi</div>
+                <div class="data" id="liveCountersData">Bekleniyor...</div>
+            </div>
+
+            <div class="event-card">
+                <h3>📈 DailySummaryUpdated</h3>
+                <div class="timestamp" id="dailySummaryTime">Henüz veri gelmedi</div>
+                <div class="data" id="dailySummaryData">Bekleniyor...</div>
+            </div>
+
+            <div class="event-card">
+                <h3>⚠️ AnomaliesUpdated</h3>
+                <div class="timestamp" id="anomaliesTime">Henüz veri gelmedi</div>
+                <div class="data" id="anomaliesData">Bekleniyor...</div>
+            </div>
+
+            <div class="event-card">
+                <h3>📋 SummaryUpdated</h3>
+                <div class="timestamp" id="summaryTime">Henüz veri gelmedi</div>
+                <div class="data" id="summaryData">Bekleniyor...</div>
+            </div>
+        </div>
+
+        <div class="log" id="log">
+            <div class="log-entry info">Log başlatıldı. Bağlanmak için 'Bağlan' butonuna tıklayın.</div>
+        </div>
+    </div>
+
+    <script>
+        let connection = null;
+
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const timestamp = new Date().toLocaleTimeString('tr-TR');
+            entry.textContent = `[${timestamp}] ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateStatus(status, text) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = `status ${status}`;
+            statusEl.textContent = text;
+        }
+
+        function updateEventCard(cardId, timeId, dataId, data) {
+            document.getElementById(timeId).textContent = new Date().toLocaleTimeString('tr-TR');
+            document.getElementById(dataId).textContent = JSON.stringify(data, null, 2);
+        }
+
+        function connect() {
+            const hubUrl = document.getElementById('hubUrl').value;
+            const token = document.getElementById('jwtToken').value.trim();
+
+            if (!hubUrl) {
+                alert('Hub URL gerekli!');
+                return;
+            }
+
+            addLog(`Hub'a bağlanılıyor: ${hubUrl}`, 'info');
+            updateStatus('connecting', 'Bağlanıyor...');
+
+            // Token varsa query string'e ekle
+            let finalUrl = hubUrl;
+            if (token) {
+                const separator = hubUrl.includes('?') ? '&' : '?';
+                finalUrl = `${hubUrl}${separator}access_token=${encodeURIComponent(token)}`;
+            }
+
+            // SignalR bağlantısı oluştur
+            connection = new signalR.HubConnectionBuilder()
+                .withUrl(finalUrl, {
+                    accessTokenFactory: token ? () => token : null,
+                    skipNegotiation: false,
+                    transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.LongPolling,
+                    headers: token ? {
+                        'Authorization': `Bearer ${token}`
+                    } : {}
+                })
+                .withAutomaticReconnect({
+                    nextRetryDelayInMilliseconds: retryContext => {
+                        if (retryContext.elapsedMilliseconds < 60000) {
+                            return 2000; // İlk 60 saniye içinde 2 saniyede bir dene
+                        } else {
+                            return 10000; // Sonra 10 saniyede bir dene
+                        }
+                    }
+                })
+                .configureLogging(signalR.LogLevel.Information)
+                .build();
+
+            // Bağlantı event'leri
+            connection.onclose((error) => {
+                addLog('Bağlantı kesildi', 'error');
+                updateStatus('disconnected', 'Bağlantı Yok');
+                document.getElementById('btnConnect').disabled = false;
+                document.getElementById('btnDisconnect').disabled = true;
+                document.getElementById('btnRequestSummary').disabled = true;
+            });
+
+            connection.onreconnecting((error) => {
+                addLog('Yeniden bağlanılıyor...', 'warning');
+                updateStatus('connecting', 'Yeniden Bağlanıyor...');
+            });
+
+            connection.onreconnected((connectionId) => {
+                addLog(`Yeniden bağlandı. Connection ID: ${connectionId}`, 'success');
+                updateStatus('connected', 'Bağlı');
+            });
+
+            // Event listener'lar
+            connection.on('LiveCountersUpdated', (data) => {
+                addLog('LiveCountersUpdated event alındı', 'success');
+                updateEventCard('liveCounters', 'liveCountersTime', 'liveCountersData', data);
+            });
+
+            connection.on('DailySummaryUpdated', (data) => {
+                addLog('DailySummaryUpdated event alındı', 'success');
+                updateEventCard('dailySummary', 'dailySummaryTime', 'dailySummaryData', data);
+            });
+
+            connection.on('AnomaliesUpdated', (data) => {
+                addLog('AnomaliesUpdated event alındı', 'success');
+                updateEventCard('anomalies', 'anomaliesTime', 'anomaliesData', data);
+            });
+
+            connection.on('SummaryUpdated', (data) => {
+                addLog('SummaryUpdated event alındı', 'success');
+                updateEventCard('summary', 'summaryTime', 'summaryData', data);
+            });
+
+            connection.on('Error', (message) => {
+                addLog(`Hata: ${message}`, 'error');
+            });
+
+            // Bağlan
+            connection.start()
+                .then(() => {
+                    addLog(`Bağlantı başarılı! Connection ID: ${connection.connectionId}`, 'success');
+                    updateStatus('connected', 'Bağlı');
+                    document.getElementById('btnConnect').disabled = true;
+                    document.getElementById('btnDisconnect').disabled = false;
+                    document.getElementById('btnRequestSummary').disabled = false;
+                })
+                .catch((error) => {
+                    addLog(`Bağlantı hatası: ${error}`, 'error');
+                    updateStatus('disconnected', 'Bağlantı Hatası');
+                    console.error('Connection error:', error);
+                });
+        }
+
+        function disconnect() {
+            if (connection) {
+                connection.stop()
+                    .then(() => {
+                        addLog('Bağlantı kapatıldı', 'info');
+                        updateStatus('disconnected', 'Bağlantı Yok');
+                        document.getElementById('btnConnect').disabled = false;
+                        document.getElementById('btnDisconnect').disabled = true;
+                        document.getElementById('btnRequestSummary').disabled = true;
+                    })
+                    .catch((error) => {
+                        addLog(`Bağlantı kapatma hatası: ${error}`, 'error');
+                    });
+            }
+        }
+
+        function requestSummary() {
+            if (connection && connection.state === signalR.HubConnectionState.Connected) {
+                addLog('Summary isteniyor...', 'info');
+                connection.invoke('RequestSummary')
+                    .then(() => {
+                        addLog('Summary isteği gönderildi', 'success');
+                    })
+                    .catch((error) => {
+                        addLog(`Summary isteği hatası: ${error}`, 'error');
+                    });
+            } else {
+                addLog('Bağlantı yok!', 'error');
+            }
+        }
+
+        // Sayfa yüklendiğinde
+        window.addEventListener('load', () => {
+            addLog('Sayfa yüklendi. Bağlanmak için Hub URL ve opsiyonel JWT token girin.', 'info');
+        });
+    </script>
+</body>
+</html>
+

@@ -9,6 +9,7 @@ namespace KuyumStokApi.Application.Interfaces.Services
 {
     public interface IDashboardService
     {
+        Task<ApiResult<DashboardSummaryDto>> GetSummaryAsync(CancellationToken ct = default);
         Task<ApiResult<LiveCountersDto>> GetLiveCountersAsync(CancellationToken ct = default);
         Task<ApiResult<SalesTrendReportDto>> GetWeeklyTrendAsync(CancellationToken ct = default);
         Task<ApiResult<DailySummaryDto>> GetDailySummaryAsync(DateTime? date = null, CancellationToken ct = default);

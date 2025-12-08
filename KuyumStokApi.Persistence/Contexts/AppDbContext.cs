@@ -56,6 +56,10 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<MonthlyTargets> MonthlyTargets { get; set; }
 
+    public virtual DbSet<RefreshTokens> RefreshTokens { get; set; }
+
+    public virtual DbSet<InvalidatedTokens> InvalidatedTokens { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<BankTransactions>(entity =>
@@ -616,6 +620,9 @@ public partial class AppDbContext : DbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
             entity.Property(e => e.Username).HasColumnName("username");
+            entity.Property(e => e.MustChangePassword)
+                .HasDefaultValue(false)
+                .HasColumnName("must_change_password");
 
             entity.HasOne(d => d.Branch).WithMany(p => p.Users)
                 .HasForeignKey(d => d.BranchId)
@@ -701,6 +708,50 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.Store).WithMany()
                 .HasForeignKey(d => d.StoreId)
                 .HasConstraintName("monthly_targets_store_id_fkey");
+        });
+
+        modelBuilder.Entity<RefreshTokens>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("refresh_tokens_pkey");
+
+            entity.ToTable("refresh_tokens");
+
+            entity.HasIndex(e => e.Token, "uq_refresh_tokens_token")
+                .IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.Token).HasColumnName("token");
+            entity.Property(e => e.ExpiresAt).HasColumnName("expires_at");
+            entity.Property(e => e.IsRevoked)
+                .HasDefaultValue(false)
+                .HasColumnName("is_revoked");
+            entity.Property(e => e.RevokedAt).HasColumnName("revoked_at");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnName("created_at");
+
+            entity.HasOne(d => d.User).WithMany(u => u.RefreshTokens)
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("refresh_tokens_user_id_fkey");
+        });
+
+        modelBuilder.Entity<InvalidatedTokens>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("invalidated_tokens_pkey");
+
+            entity.ToTable("invalidated_tokens");
+
+            entity.HasIndex(e => e.Jti, "uq_invalidated_tokens_jti")
+                .IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Jti).HasColumnName("jti");
+            entity.Property(e => e.ExpiresAt).HasColumnName("expires_at");
+            entity.Property(e => e.InvalidatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnName("invalidated_at");
         });
 
         OnModelCreatingPartial(modelBuilder);
