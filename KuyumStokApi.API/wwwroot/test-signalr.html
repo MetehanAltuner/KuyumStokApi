@@ -320,10 +320,11 @@
                 .withUrl(finalUrl, {
                     accessTokenFactory: token ? () => token : null,
                     skipNegotiation: false,
-                    transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.LongPolling,
+                    transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.LongPolling | signalR.HttpTransportType.ServerSentEvents,
                     headers: token ? {
                         'Authorization': `Bearer ${token}`
-                    } : {}
+                    } : {},
+                    withCredentials: true // CORS için credentials gönder
                 })
                 .withAutomaticReconnect({
                     nextRetryDelayInMilliseconds: retryContext => {

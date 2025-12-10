@@ -17,7 +17,11 @@ RUN dotnet restore "KuyumStokApi.API/KuyumStokApi.API.csproj"
 COPY . .
 
 # Publish (framework-dependent)
-RUN dotnet publish "KuyumStokApi.API/KuyumStokApi.API.csproj" -c Release -o /app/publish /p:UseAppHost=false
+# wwwroot klasörünün dahil edildiğinden emin olmak için ContentFiles'i dahil et
+RUN dotnet publish "KuyumStokApi.API/KuyumStokApi.API.csproj" -c Release -o /app/publish /p:UseAppHost=false /p:CopyOutputSymbols=false
+
+# wwwroot klasörünün kopyalandığını doğrula (opsiyonel - debug için)
+RUN ls -la /app/publish/wwwroot/ || echo "wwwroot klasörü bulunamadı!"
 
 # ----------------------
 # RUNTIME STAGE

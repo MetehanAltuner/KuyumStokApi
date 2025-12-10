@@ -28,14 +28,25 @@ builder.Services.AddControllers();
 builder.Services.AddSignalR();
 
 // CORS yapılandırması (SignalR için gerekli)
+// DEV: Tüm origin'lere izin ver (production'da spesifik origin'ler belirtilmeli)
 builder.Services.AddCors(options =>
 {
-    options.AddDefaultPolicy(policy =>
+    // SignalR için özel policy
+    options.AddPolicy("SignalRCorsPolicy", policy =>
     {
-        policy.WithOrigins("https://localhost:7292", "http://localhost:5235")
+        policy.SetIsOriginAllowed(_ => true) // Tüm origin'lere izin ver
               .AllowAnyMethod()
               .AllowAnyHeader()
               .AllowCredentials(); // SignalR için credentials gerekli
+    });
+    
+    // Default policy (diğer endpoint'ler için)
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.SetIsOriginAllowed(_ => true)
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
     });
 });
 
@@ -187,7 +198,10 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapHub<DashboardHub>("/hubs/dashboard");
+
+// SignalR hub'ına özel CORS policy uygula
+app.MapHub<DashboardHub>("/hubs/dashboard")
+   .RequireCors("SignalRCorsPolicy");
 
 // 🔄 Veritabanı migration ve seed data (app.Run öncesi!)
 await app.MigrateAndSeedAsync();

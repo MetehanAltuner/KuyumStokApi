@@ -23,6 +23,11 @@
     <ProjectReference Include="..\KuyumStokApi.Infrastructure\KuyumStokApi.Infrastructure.csproj" />
     <ProjectReference Include="..\KuyumStokApi.Persistence\KuyumStokApi.Persistence.csproj" />
   </ItemGroup>
+  
+  <ItemGroup>
+    <!-- wwwroot klasörünün publish'e dahil edildiğinden emin ol -->
+    <Content Include="wwwroot\**\*" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
   <PropertyGroup>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591</NoWarn>
