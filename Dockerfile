@@ -17,7 +17,7 @@ RUN dotnet restore "KuyumStokApi.API/KuyumStokApi.API.csproj"
 COPY . .
 
 # Publish (framework-dependent)
-# wwwroot klasörünün dahil edildiğinden emin olmak için ContentFiles'i dahil et
+# .NET SDK Web projelerinde wwwroot klasörü otomatik olarak publish'e dahil edilir
 RUN dotnet publish "KuyumStokApi.API/KuyumStokApi.API.csproj" -c Release -o /app/publish /p:UseAppHost=false /p:CopyOutputSymbols=false
 
 # wwwroot klasörünün kopyalandığını doğrula (opsiyonel - debug için)
@@ -28,6 +28,13 @@ RUN ls -la /app/publish/wwwroot/ || echo "wwwroot klasörü bulunamadı!"
 # ----------------------
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
+
+# Temel araçları yükle (curl, ping) - minimal boyut için cache temizle
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    iputils-ping \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/publish .
 

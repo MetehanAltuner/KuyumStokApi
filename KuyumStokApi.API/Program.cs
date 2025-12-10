@@ -200,7 +200,7 @@ app.UseAuthorization();
 app.MapControllers();
 
 // SignalR hub'ına özel CORS policy uygula
-app.MapHub<DashboardHub>("/hubs/dashboard")
+app.MapHub<DashboardHub>("/api/hubs/dashboard")
    .RequireCors("SignalRCorsPolicy");
 
 // 🔄 Veritabanı migration ve seed data (app.Run öncesi!)
