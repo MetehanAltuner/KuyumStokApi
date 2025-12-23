@@ -26,7 +26,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             _user = user;
         }
 
-        // -------- LİSTE: sadece kullanıcının şubesindeki stok SATIRLARI (gruplama yok) --------
+        // -------- LİSTE: Aynı varyanta sahip stokları gruplayarak toplam adet ve ağırlık ile gösterir --------
         public async Task<ApiResult<PagedResult<StockDto>>> GetPagedAsync(StockFilter filter, CancellationToken ct = default)
         {
             var branchId = filter.BranchId ?? _user.BranchId;
@@ -36,7 +36,8 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             var page = Math.Max(1, filter.Page);
             var pageSize = Math.Clamp(filter.PageSize, 1, 200);
 
-            var q =
+            // Temel sorgu: Stokları variant ve kategori bilgileriyle join et
+            var baseQ =
                 from s in _db.Stocks.AsNoTracking()
                 where s.BranchId == branchId
                 join v in _db.ProductVariants.AsNoTracking() on s.ProductVariantId equals v.Id into jv
@@ -45,12 +46,15 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                 from t in jt.DefaultIfEmpty()
                 join c in _db.ProductCategories.AsNoTracking() on t!.CategoryId equals c.Id into jc
                 from c in jc.DefaultIfEmpty()
-                select new { s, v, t, c };
+                join b in _db.Branches.AsNoTracking() on s.BranchId equals b.Id into jb
+                from b in jb.DefaultIfEmpty()
+                select new { s, v, t, c, b };
 
+            // Filtreler
             if (!string.IsNullOrWhiteSpace(filter.Query))
             {
                 var qstr = filter.Query.Trim();
-                q = q.Where(x =>
+                baseQ = baseQ.Where(x =>
                     EF.Functions.ILike(x.s.Barcode, $"%{qstr}%") ||
                     EF.Functions.ILike(x.s.QrCode ?? "", $"%{qstr}%") ||
                     (x.v != null && (
@@ -63,64 +67,108 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             }
 
             if (filter.ProductTypeId is not null)
-                q = q.Where(x => x.v != null && x.v.ProductTypeId == filter.ProductTypeId);
+                baseQ = baseQ.Where(x => x.v != null && x.v.ProductTypeId == filter.ProductTypeId);
 
             if (filter.ProductVariantId is not null)
-                q = q.Where(x => x.s.ProductVariantId == filter.ProductVariantId);
+                baseQ = baseQ.Where(x => x.s.ProductVariantId == filter.ProductVariantId);
 
             if (filter.GramMin is not null)
-                q = q.Where(x => (x.s.Gram ?? 0) >= filter.GramMin);
+                baseQ = baseQ.Where(x => (x.s.Gram ?? 0) >= filter.GramMin);
 
             if (filter.GramMax is not null)
-                q = q.Where(x => (x.s.Gram ?? 0) <= filter.GramMax);
+                baseQ = baseQ.Where(x => (x.s.Gram ?? 0) <= filter.GramMax);
 
             if (filter.UpdatedFromUtc is not null)
-                q = q.Where(x => x.s.UpdatedAt == null || x.s.UpdatedAt >= filter.UpdatedFromUtc);
+                baseQ = baseQ.Where(x => x.s.UpdatedAt == null || x.s.UpdatedAt >= filter.UpdatedFromUtc);
 
             if (filter.UpdatedToUtc is not null)
-                q = q.Where(x => x.s.UpdatedAt == null || x.s.UpdatedAt <= filter.UpdatedToUtc);
+                baseQ = baseQ.Where(x => x.s.UpdatedAt == null || x.s.UpdatedAt <= filter.UpdatedToUtc);
 
-            var total = await q.LongCountAsync(ct);
+            // ProductVariantId ve BranchId'ye göre grupla
+            // Not: Aynı ProductVariantId + BranchId'ye sahip tüm stokları topluyoruz
+            // Variant bilgilerini key'e ekliyoruz (aynı ProductVariantId için aynı olduğundan gruplamayı bozmaz)
+            // Bu sayede EF Core'un çevirebileceği bir sorgu elde ediyoruz
+            var grouped = 
+                from x in baseQ
+                group x by new { 
+                    ProductVariantId = x.s.ProductVariantId, 
+                    BranchId = x.s.BranchId,
+                    VariantName = x.v != null ? x.v.Name : null,
+                    VariantAyar = x.v != null ? x.v.Ayar : null,
+                    VariantColor = x.v != null ? x.v.Color : null,
+                    VariantBrand = x.v != null ? x.v.Brand : null,
+                    TypeId = x.t != null ? x.t.Id : (int?)null,
+                    TypeName = x.t != null ? x.t.Name : null,
+                    CategoryName = x.c != null ? x.c.Name : null,
+                    BranchName = x.b != null ? x.b.Name : null
+                } into g
+                select new
+                {
+                    ProductVariantId = g.Key.ProductVariantId,
+                    BranchId = g.Key.BranchId,
+                    VariantName = g.Key.VariantName,
+                    VariantAyar = g.Key.VariantAyar,
+                    VariantColor = g.Key.VariantColor,
+                    VariantBrand = g.Key.VariantBrand,
+                    TypeId = g.Key.TypeId,
+                    TypeName = g.Key.TypeName,
+                    CategoryName = g.Key.CategoryName,
+                    BranchName = g.Key.BranchName,
+                    // Toplam adet
+                    TotalQuantity = g.Sum(z => z.s.Quantity ?? 0),
+                    // Toplam ağırlık (her stok için Gram * Quantity toplamı)
+                    TotalWeight = g.Sum(z => (z.s.Gram ?? 0) * (decimal)(z.s.Quantity ?? 0)),
+                    // En son güncellenme tarihi
+                    LastUpdatedAt = g.Max(z => z.s.UpdatedAt ?? z.s.CreatedAt ?? DateTime.MinValue),
+                    // İlk oluşturulma tarihi
+                    FirstCreatedAt = g.Min(z => z.s.CreatedAt ?? DateTime.MinValue)
+                };
 
-            var items = await q
-                .OrderByDescending(x => x.s.UpdatedAt ?? DateTime.MinValue)
-                .ThenBy(x => x.s.Id)
+            // Toplam grup sayısını hesapla (sayfalama için)
+            var total = await grouped.LongCountAsync(ct);
+
+            // Sayfalama ve sıralama
+            var groupedItems = await grouped
+                .OrderByDescending(x => x.LastUpdatedAt)
+                .ThenBy(x => x.ProductVariantId)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
-                .Select(x => new StockDto
-                {
-                    Id = x.s.Id,
-                    Quantity = x.s.Quantity,
-                    Barcode = x.s.Barcode,
-                    QrCode = x.s.QrCode,
-                    CreatedAt = x.s.CreatedAt,
-                    UpdatedAt = x.s.UpdatedAt,
-                    TotalWeight = (x.s.Gram ?? 0) * (decimal)(x.s.Quantity ?? 0),
-
-                    Branch = new StockDto.BranchBrief
-                    {
-                        Id = x.s.BranchId,
-                        Name = x.s.Branch != null ? x.s.Branch.Name : null
-                    },
-                    ProductVariant = new StockDto.VariantBrief
-                    {
-                        Id = x.s.ProductVariantId,
-                        Name = x.v != null ? x.v.Name : null,
-                        Ayar = x.v != null ? x.v.Ayar : null,
-                        Color = x.v != null ? x.v.Color : null,
-                        Brand = x.v != null ? x.v.Brand : null,
-
-                        Gram = x.s.Gram,
-                        ProductTypeId = x.v != null ? x.v.ProductTypeId : null,
-                        ProductTypeName = x.t != null ? x.t.Name : null,
-                        CategoryName = x.c != null ? x.c.Name : null
-                    }
-                })
                 .ToListAsync(ct);
+
+            // DTO'ya dönüştür
+            var items = groupedItems.Select(x => new StockDto
+            {
+                Id = 0, // Gruplama yapıldığı için ID anlamsız, UI'da kullanılmıyor
+                Quantity = x.TotalQuantity,
+                Barcode = string.Empty, // Gruplama yapıldığı için tek bir barkod yok
+                QrCode = null,  // Gruplama yapıldığı için QR kod yok
+                CreatedAt = x.FirstCreatedAt != DateTime.MinValue ? x.FirstCreatedAt : null,
+                UpdatedAt = x.LastUpdatedAt != DateTime.MinValue ? x.LastUpdatedAt : null,
+                TotalWeight = x.TotalWeight,
+
+                Branch = new StockDto.BranchBrief
+                {
+                    Id = x.BranchId,
+                    Name = x.BranchName
+                },
+                ProductVariant = new StockDto.VariantBrief
+                {
+                    Id = x.ProductVariantId,
+                    Name = x.VariantName,
+                    Ayar = x.VariantAyar,
+                    Color = x.VariantColor,
+                    Brand = x.VariantBrand,
+                    // Gruplama yapıldığı için tek bir Gram değeri yok, null bırakıyoruz
+                    Gram = null,
+                    ProductTypeId = x.TypeId,
+                    ProductTypeName = x.TypeName,
+                    CategoryName = x.CategoryName
+                }
+            }).ToList();
 
             return ApiResult<PagedResult<StockDto>>.Ok(
                 new PagedResult<StockDto> { Items = items, Page = page, PageSize = pageSize, TotalCount = total },
-                "Şube stok listesi", 200);
+                "Şube stok listesi (varyant bazında gruplanmış)", 200);
         }
 
         // -------- DETAY: seçilen varyant, aynı store’daki tüm şubeler --------
@@ -216,8 +264,9 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
         /// Stok oluşturur veya merge eder.
         /// Eğer aynı ProductVariantId + BranchId + fiziksel özellikler varsa, mevcut quantity'i artırır.
         /// Yoksa yeni stok satırı oluşturur.
+        /// PurchasePrice varsa otomatik olarak Purchase kaydı oluşturur (skipPurchaseCreation=false ise).
         /// </summary>
-        public async Task<ApiResult<StockDto>> CreateAsync(StockCreateDto dto, CancellationToken ct = default)
+        public async Task<ApiResult<StockDto>> CreateAsync(StockCreateDto dto, CancellationToken ct = default, bool skipPurchaseCreation = false)
         {
             // BranchId belirleme
             var branchId = dto.BranchId ?? _user.BranchId;
@@ -227,89 +276,185 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             if (dto.Quantity <= 0)
                 return ApiResult<StockDto>.Fail("Quantity >= 1 olmalıdır.", statusCode: 400);
 
-            // Merge Criteria: Aynı özelliklere sahip stok var mı?
-            var match = await _db.Stocks.FirstOrDefaultAsync(s =>
-                s.ProductVariantId == dto.ProductVariantId &&
-                s.BranchId == branchId &&
-                s.Gram == dto.Gram &&
-                s.Thickness == dto.Thickness &&
-                s.Width == dto.Width &&
-                s.StoneType == dto.StoneType &&
-                s.Carat == dto.Carat &&
-                s.Milyem == dto.Milyem &&
-                s.Color == dto.Color
-            , ct);
+            // Transaction başlat (PurchasePrice varsa)
+            using var transaction = (dto.PurchasePrice.HasValue && dto.PurchasePrice.Value > 0 && !skipPurchaseCreation)
+                ? await _db.Database.BeginTransactionAsync(ct)
+                : null;
 
-            if (match != null)
+            int stockId;
+            
+            try
             {
-                // MERGE: Mevcut quantity'i artır
-                match.Quantity = (match.Quantity ?? 0) + dto.Quantity;
-                match.UpdatedAt = DateTime.UtcNow;
+                // Merge Criteria: Aynı özelliklere sahip stok var mı?
+                var match = await _db.Stocks.FirstOrDefaultAsync(s =>
+                    s.ProductVariantId == dto.ProductVariantId &&
+                    s.BranchId == branchId &&
+                    s.Gram == dto.Gram &&
+                    s.Thickness == dto.Thickness &&
+                    s.Width == dto.Width &&
+                    s.StoneType == dto.StoneType &&
+                    s.Carat == dto.Carat &&
+                    s.Milyem == dto.Milyem &&
+                    s.RawMilyem == dto.RawMilyem &&
+                    s.WorkmanshipMilyem == dto.WorkmanshipMilyem &&
+                    s.Color == dto.Color
+                , ct);
 
-                if (dto.GenerateQrCode && string.IsNullOrWhiteSpace(match.QrCode))
+                if (match != null)
                 {
-                    match.QrCode = BuildQrPayload(match);
-                }
-                else if (!string.IsNullOrWhiteSpace(dto.QrCode))
-                {
-                    match.QrCode = dto.QrCode;
+                    // MERGE: Mevcut quantity'i artır
+                    match.Quantity = (match.Quantity ?? 0) + dto.Quantity;
+                    match.UpdatedAt = DateTime.UtcNow;
+
+                    if (dto.GenerateQrCode && string.IsNullOrWhiteSpace(match.QrCode))
+                    {
+                        match.QrCode = BuildQrPayload(match);
+                    }
+                    else if (!string.IsNullOrWhiteSpace(dto.QrCode))
+                    {
+                        match.QrCode = dto.QrCode;
+                    }
+
+                    await _db.SaveChangesAsync(ct);
+
+                    stockId = match.Id;
+
+                    // PurchasePrice varsa ve skipPurchaseCreation false ise Purchase kaydı oluştur
+                    if (dto.PurchasePrice.HasValue && dto.PurchasePrice.Value > 0 && !skipPurchaseCreation)
+                    {
+                        await CreatePurchaseRecordAsync(stockId, branchId.Value, dto.Quantity, dto.PurchasePrice.Value, ct);
+                    }
+
+                    if (transaction != null)
+                        await transaction.CommitAsync(ct);
+
+                    var merged = await GetByIdAsync(match.Id, ct);
+                    merged.StatusCode = 200;
+                    merged.Message = dto.PurchasePrice.HasValue && dto.PurchasePrice.Value > 0 && !skipPurchaseCreation
+                        ? (dto.GenerateQrCode ? "Mevcut stok güncellendi, QR kod yenilendi ve alış kaydı oluşturuldu." : "Mevcut stok güncellendi ve alış kaydı oluşturuldu.")
+                        : (dto.GenerateQrCode ? "Mevcut stok güncellendi ve QR kod yenilendi." : "Mevcut stok güncellendi (quantity artırıldı)");
+                    return merged;
                 }
 
+                // YENİ KAYIT: Barcode kontrolü
+                var barcode = string.IsNullOrWhiteSpace(dto.Barcode)
+                    ? await GenerateUniqueBarcodeAsync(branchId.Value, ct)
+                    : dto.Barcode.Trim();
+
+                var barcodeExists = await _db.Stocks.AnyAsync(x => x.Barcode == barcode, ct);
+                if (barcodeExists)
+                {
+                    if (transaction != null)
+                        await transaction.RollbackAsync(ct);
+                    return ApiResult<StockDto>.Fail("Bu barkod zaten kullanılıyor.", statusCode: 409);
+                }
+
+                var now = DateTime.UtcNow;
+
+                var entity = new Domain.Entities.Stocks
+                {
+                    ProductVariantId = dto.ProductVariantId,
+                    BranchId = branchId,
+                    Quantity = dto.Quantity,
+                    Barcode = barcode,
+                    QrCode = dto.GenerateQrCode && string.IsNullOrWhiteSpace(dto.QrCode)
+                        ? null
+                        : dto.QrCode,
+                    Gram = dto.Gram,
+                    Thickness = dto.Thickness,
+                    Width = dto.Width,
+                    StoneType = dto.StoneType,
+                    Carat = dto.Carat,
+                    Milyem = dto.Milyem,
+                    RawMilyem = dto.RawMilyem,
+                    WorkmanshipMilyem = dto.WorkmanshipMilyem,
+                    Color = dto.Color,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+
+                _db.Stocks.Add(entity);
                 await _db.SaveChangesAsync(ct);
 
-                var merged = await GetByIdAsync(match.Id, ct);
-                merged.StatusCode = 200;
-                merged.Message = dto.GenerateQrCode
-                    ? "Mevcut stok güncellendi ve QR kod yenilendi."
-                    : "Mevcut stok güncellendi (quantity artırıldı)";
-                return merged;
+                if (dto.GenerateQrCode)
+                {
+                    entity.QrCode = BuildQrPayload(entity);
+                    entity.UpdatedAt = DateTime.UtcNow;
+                    await _db.SaveChangesAsync(ct);
+                }
+
+                stockId = entity.Id;
+
+                // PurchasePrice varsa ve skipPurchaseCreation false ise Purchase kaydı oluştur
+                if (dto.PurchasePrice.HasValue && dto.PurchasePrice.Value > 0 && !skipPurchaseCreation)
+                {
+                    await CreatePurchaseRecordAsync(stockId, branchId.Value, dto.Quantity, dto.PurchasePrice.Value, ct);
+                }
+
+                if (transaction != null)
+                    await transaction.CommitAsync(ct);
+
+                var created = await GetByIdAsync(entity.Id, ct);
+                created.StatusCode = 201;
+                created.Message = dto.PurchasePrice.HasValue && dto.PurchasePrice.Value > 0 && !skipPurchaseCreation
+                    ? "Yeni stok oluşturuldu ve alış kaydı oluşturuldu"
+                    : "Yeni stok oluşturuldu";
+                return created;
             }
-
-            // YENİ KAYIT: Barcode kontrolü
-            var barcode = string.IsNullOrWhiteSpace(dto.Barcode)
-                ? await GenerateUniqueBarcodeAsync(branchId.Value, ct)
-                : dto.Barcode.Trim();
-
-            var barcodeExists = await _db.Stocks.AnyAsync(x => x.Barcode == barcode, ct);
-            if (barcodeExists)
-                return ApiResult<StockDto>.Fail("Bu barkod zaten kullanılıyor.", statusCode: 409);
-
-            var now = DateTime.UtcNow;
-
-            var entity = new Domain.Entities.Stocks
+            catch
             {
-                ProductVariantId = dto.ProductVariantId,
-                BranchId = branchId,
-                Quantity = dto.Quantity,
-                Barcode = barcode,
-                QrCode = dto.GenerateQrCode && string.IsNullOrWhiteSpace(dto.QrCode)
-                    ? null
-                    : dto.QrCode,
-                Gram = dto.Gram,
-                Thickness = dto.Thickness,
-                Width = dto.Width,
-                StoneType = dto.StoneType,
-                Carat = dto.Carat,
-                Milyem = dto.Milyem,
-                Color = dto.Color,
-                CreatedAt = now,
-                UpdatedAt = now
-            };
+                if (transaction != null)
+                    await transaction.RollbackAsync(ct);
+                throw;
+            }
+        }
 
-            _db.Stocks.Add(entity);
+        private async Task CreatePurchaseRecordAsync(int stockId, int branchId, int quantity, decimal purchasePrice, CancellationToken ct)
+        {
+            var userId = _user.UserId;
+            if (!userId.HasValue)
+                throw new InvalidOperationException("Kullanıcı bilgisi bulunamadı.");
+
+            // Purchase kaydı oluştur
+            var purchase = new Domain.Entities.Purchases
+            {
+                UserId = userId,
+                BranchId = branchId,
+                CustomerId = null,
+                PaymentMethodId = null,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            _db.Purchases.Add(purchase);
             await _db.SaveChangesAsync(ct);
 
-            if (dto.GenerateQrCode)
+            // PurchaseDetails oluştur
+            _db.PurchaseDetails.Add(new Domain.Entities.PurchaseDetails
             {
-                entity.QrCode = BuildQrPayload(entity);
-                entity.UpdatedAt = DateTime.UtcNow;
-                await _db.SaveChangesAsync(ct);
-            }
+                PurchaseId = purchase.Id,
+                StockId = stockId,
+                Quantity = quantity,
+                PurchasePrice = purchasePrice,
+                UpdatedAt = DateTime.UtcNow
+            });
 
-            var created = await GetByIdAsync(entity.Id, ct);
-            created.StatusCode = 201;
-            created.Message = "Yeni stok oluşturuldu";
-            return created;
+            // Lifecycle kaydı oluştur
+            var purchaseActionId = await _db.LifecycleActions
+                .Where(x => x.Name == "Purchase")
+                .Select(x => (int?)x.Id)
+                .FirstOrDefaultAsync(ct);
+
+            _db.ProductLifecycles.Add(new Domain.Entities.ProductLifecycles
+            {
+                StockId = stockId,
+                UserId = userId,
+                ActionId = purchaseActionId,
+                Notes = $"Stok girişi (PurchaseId:{purchase.Id})",
+                Timestamp = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+
+            await _db.SaveChangesAsync(ct);
         }
 
         public async Task<ApiResult<bool>> UpdateAsync(int id, StockUpdateDto dto, CancellationToken ct = default)
@@ -331,6 +476,18 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             entity.BranchId = dto.BranchId ?? entity.BranchId;
             entity.Quantity = dto.Quantity ?? entity.Quantity;
             entity.QrCode = dto.QrCode ?? entity.QrCode;
+            
+            // Fiziksel özellikler güncelleme
+            if (dto.Gram.HasValue) entity.Gram = dto.Gram;
+            if (dto.Thickness.HasValue) entity.Thickness = dto.Thickness;
+            if (dto.Width.HasValue) entity.Width = dto.Width;
+            if (dto.StoneType != null) entity.StoneType = dto.StoneType;
+            if (dto.Carat.HasValue) entity.Carat = dto.Carat;
+            if (dto.Milyem.HasValue) entity.Milyem = dto.Milyem;
+            if (dto.RawMilyem.HasValue) entity.RawMilyem = dto.RawMilyem;
+            if (dto.WorkmanshipMilyem.HasValue) entity.WorkmanshipMilyem = dto.WorkmanshipMilyem;
+            if (dto.Color != null) entity.Color = dto.Color;
+            
             entity.UpdatedAt = DateTime.UtcNow;
 
             await _db.SaveChangesAsync(ct);
@@ -440,6 +597,8 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                 entity.StoneType,
                 entity.Carat,
                 entity.Milyem,
+                entity.RawMilyem,
+                entity.WorkmanshipMilyem,
                 entity.Color,
                 entity.CreatedAt,
                 entity.UpdatedAt
@@ -467,6 +626,9 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                 CreatedAt = s.CreatedAt,
                 UpdatedAt = s.UpdatedAt,
                 TotalWeight = (s.Gram ?? 0) * (decimal)(s.Quantity ?? 0),
+                Milyem = s.Milyem,
+                RawMilyem = s.RawMilyem,
+                WorkmanshipMilyem = s.WorkmanshipMilyem,
                 Branch = new StockDto.BranchBrief
                 {
                     Id = s.BranchId,

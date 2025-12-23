@@ -19,6 +19,10 @@ namespace KuyumStokApi.Application.DTOs.Stocks
         /// <summary>Satır için toplam ağırlık = (Gram * Adet)</summary>
         public decimal TotalWeight { get; set; }
 
+        public int? Milyem { get; set; }
+        public int? RawMilyem { get; set; }
+        public int? WorkmanshipMilyem { get; set; }
+
         public sealed class VariantBrief
         {
             public int? Id { get; set; }
@@ -57,7 +61,12 @@ namespace KuyumStokApi.Application.DTOs.Stocks
         public string? StoneType { get; set; }
         public decimal? Carat { get; set; }
         public int? Milyem { get; set; }
+        public int? RawMilyem { get; set; }
+        public int? WorkmanshipMilyem { get; set; }
         public string? Color { get; set; }
+
+        // Alış fiyatı (nullable - varsa alış kaydı açılır)
+        public decimal? PurchasePrice { get; set; }
     }
 
     /// <summary>Stok güncelleme DTO.</summary>
@@ -76,6 +85,8 @@ namespace KuyumStokApi.Application.DTOs.Stocks
         public string? StoneType { get; set; }
         public decimal? Carat { get; set; }
         public int? Milyem { get; set; }
+        public int? RawMilyem { get; set; }
+        public int? WorkmanshipMilyem { get; set; }
         public string? Color { get; set; }
     }
 

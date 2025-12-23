@@ -33,6 +33,10 @@ public partial class Stocks
 
     public int? Milyem { get; set; }
 
+    public int? RawMilyem { get; set; }
+
+    public int? WorkmanshipMilyem { get; set; }
+
     public string? Color { get; set; }
 
     public virtual Branches? Branch { get; set; }

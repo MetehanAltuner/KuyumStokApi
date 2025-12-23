@@ -397,10 +397,13 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                     StoneType = item.StoneType,
                     Carat = item.Carat,
                     Milyem = item.Milyem,
-                    Color = item.Color
+                    RawMilyem = item.RawMilyem,
+                    WorkmanshipMilyem = item.WorkmanshipMilyem,
+                    Color = item.Color,
+                    PurchasePrice = item.PurchasePrice
                 };
 
-                var stockResult = await _stocksService.CreateAsync(stockCreateDto, ct);
+                var stockResult = await _stocksService.CreateAsync(stockCreateDto, ct, skipPurchaseCreation: true);
                 if (!stockResult.Success || stockResult.Data == null)
                     throw new InvalidOperationException($"Stok oluşturulamadı: {stockResult.Message}");
 

@@ -545,6 +545,12 @@ public partial class AppDbContext : DbContext
                 .HasColumnName("created_at");
             entity.Property(e => e.Gram).HasColumnName("gram");
             entity.Property(e => e.Milyem).HasColumnName("milyem");
+            entity.Property(e => e.RawMilyem)
+                .HasColumnName("raw_milyem")
+                .HasComment("Ham milyem değeri");
+            entity.Property(e => e.WorkmanshipMilyem)
+                .HasColumnName("workmanship_milyem")
+                .HasComment("İşçilik milyem değeri");
             entity.Property(e => e.ProductVariantId).HasColumnName("product_variant_id");
             entity.Property(e => e.QrCode).HasColumnName("qr_code");
             entity.Property(e => e.Quantity).HasColumnName("quantity");
