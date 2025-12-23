@@ -361,3 +361,9 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Large archive files
+*.tar
+*.tar.gz
+*.zip
+inventory-api-*.tar
