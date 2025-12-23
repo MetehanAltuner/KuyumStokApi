@@ -6,9 +6,10 @@ alwaysApply: true
 
 - **Katmanlar**: `API` (controller ve middleware), `Application` (DTO + servis kontratları), `Domain` (entity & ortak arayüz), `Infrastructure` (servis implementasyonları + güvenlik), `Persistence` (EF Core DbContext, migrations, seed).
 - **Temel Akışlar**: Alış (`Purchases` → stok oluşturma/arttırma), Satış (`Sales` → stok düşme + POS komisyonu), Lifecycle kayıtları (her stok hareketi için `ProductLifecycles`), Limit kontrolü (`Limits`).
-- **Kimlik Doğrulama**: JWT (HS256, `JwtService` içinde `JwtOptions` nested class), parola hashleme (`PasswordHasher`, SHA-256 + salt + pepper + iteration).
+- **Kimlik Doğrulama**: JWT (HS256, `JwtService` içinde `JwtOptions` nested class), parola hashleme (`PasswordHasher`, SHA-256 + salt + pepper + iteration), token blacklist (`ITokenBlacklistService`), refresh token yönetimi (`IRefreshTokenService`), SignalR JWT authentication desteği.
 - **Soft Delete**: Çoğu entity `IsDeleted`, `DeletedAt`, `DeletedBy` içeriyor; servisler çoğunlukla soft delete yapıyor.
 - **Standart Yanıt**: `ApiResult<T>` + `PagedResult<TItem>` (Application/Common).
+- **Real-Time Güncellemeler**: SignalR (`DashboardHub`) - live-counters, daily-summary, anomalies endpoint'leri broadcast yapar.
 - **Önemli Nested Yapılar**: DTO dosyalarında `Brief` ve `Block` sınıfları; `JwtOptions` nested; `PasswordCheckRequestDto.cs` içinde üç ayrı sınıf var.
 - **Referans Doküman**: `PROJE_DOKUMANTASYONU.md` proje genelini ve entity ilişkilerini ayrıntılı açıklıyor; inceleme sırasında bu dosyayı ana rehber olarak kullan.
 
@@ -71,14 +72,16 @@ alwaysApply: true
 - **Sales**: UserId, BranchId, CustomerId, PaymentMethodId, CreatedAt/UpdatedAt; navigation `BankTransactions`, `Branch`, `Customer`, `PaymentMethod`, `SaleDetails`, `SalePayments`, `User`.
 - **Stocks**: ProductVariantId, BranchId, Quantity, Barcode, QrCode, CreatedAt/UpdatedAt, gramaj ve fiziksel alanlar (Gram, Thickness, Width, StoneType, Carat, Milyem, Color); navigation `Branch`, `ProductVariant`, `ProductLifecycles`, `PurchaseDetails`, `SaleDetails`.
 - **Stores**: Name, CreatedAt/UpdatedAt, soft-delete + `IsActive`; navigation `Branches`.
-- **Users**: Username, PasswordHash/Salt, FirstName, LastName, RoleId, BranchId, CreatedAt/UpdatedAt, `IsActive`, soft-delete alanları; navigation `Branch`, `Role`, koleksiyonlar `ProductLifecycles`, `Purchases`, `Sales`.
+- **Users**: Username, PasswordHash/Salt, FirstName, LastName, RoleId, BranchId, CreatedAt/UpdatedAt, `IsActive`, `MustChangePassword` (bool, default false), soft-delete alanları; navigation `Branch`, `Role`, koleksiyonlar `ProductLifecycles`, `Purchases`, `Sales`, `RefreshTokens`.
 - **ThermalPrinters**: BranchId, Name, IpAddress, Port, Description, CreatedAt/UpdatedAt, soft-delete alanları, `IsActive`; navigation `Branch`.
-- **MonthlyTargets** (yeni): StoreId, Year, Month, TargetAmount, CreatedAt/UpdatedAt, soft-delete alanları, `IsActive`; navigation `Store`; unique constraint (StoreId, Year, Month).
+- **MonthlyTargets**: StoreId, Year, Month, TargetAmount, CreatedAt/UpdatedAt, soft-delete alanları, `IsActive`; navigation `Store`; unique constraint (StoreId, Year, Month).
+- **RefreshTokens**: UserId, Token (unique), ExpiresAt, IsRevoked, RevokedAt, CreatedAt; navigation `User`; unique constraint (token).
+- **InvalidatedTokens**: Jti (unique), ExpiresAt, InvalidatedAt; soft delete YOKTUR (güvenlik için kalıcı); unique constraint (jti).
 
 ## Persistence Katmanı İncelemesi (Tamamlandı)
 
 - **AppDbContext (Ana)**:
-  - DbSet'ler: tüm domain entity'leri (`BankTransactions`, `Banks`, `Branches`, `Customers`, `LifecycleActions`, `Limits`, `MonthlyTargets`, `PaymentMethods`, `ProductCategories`, `ProductLifecycles`, `ProductTypes`, `ProductVariants`, `PurchaseDetails`, `Purchases`, `Roles`, `SaleDetails`, `SalePayments`, `Sales`, `Stocks`, `Stores`, `ThermalPrinters`, `Users`).
+  - DbSet'ler: tüm domain entity'leri (`BankTransactions`, `Banks`, `Branches`, `Customers`, `InvalidatedTokens`, `LifecycleActions`, `Limits`, `MonthlyTargets`, `PaymentMethods`, `ProductCategories`, `ProductLifecycles`, `ProductTypes`, `ProductVariants`, `PurchaseDetails`, `Purchases`, `RefreshTokens`, `Roles`, `SaleDetails`, `SalePayments`, `Sales`, `Stocks`, `Stores`, `ThermalPrinters`, `Users`).
   - `OnModelCreating`:
     - Tüm tablolar snake_case isimleriyle (`ToTable("banks")` vb.).
     - Default değerler: `CreatedAt`/`UpdatedAt` için `CURRENT_TIMESTAMP`; `IsActive` true, `IsDeleted` false; `PasswordSalt` default boş string.
@@ -109,6 +112,7 @@ alwaysApply: true
   - `20251109161544_AddSalePaymentsTable` → `SalePayments` tablosunu snake_case'e çevirir, timestamp default'larını ekler, FK isimlerini günceller.
   - `20251110071139_UnifiedReceiptAndFavorites` → `stocks.color`, `product_variants.is_favorite` (default false) kolonlarını ekler; `customers.national_id` (varchar(11)) + unique index.
   - `20251128213011_AddMonthlyTargetsTable` → `monthly_targets` tablosunu oluşturur; unique index `uq_monthly_targets_store_year_month` (StoreId, Year, Month); FK constraint `monthly_targets_store_id_fkey`.
+  - `20251208214227_AddRefreshTokensAndInvalidatedTokensAndMustChangePassword` → `refresh_tokens` ve `invalidated_tokens` tablolarını oluşturur; `users.must_change_password` kolonu ekler; unique index'ler (`uq_refresh_tokens_token`, `uq_invalidated_tokens_jti`); FK constraint `refresh_tokens_user_id_fkey`.
   - `AppDbContextModelSnapshot` güncel şemayı yansıtır (9.0.10 EF sürümü, tüm default değer ve ilişki ayarları).
 
 ## Application Katmanı İncelemesi (Tamamlandı)
@@ -143,7 +147,7 @@ alwaysApply: true
   - `StockFilter` record (Query, BranchId, ProductTypeId, ProductVariantId, Gram aralıkları, Updated aralığı).
   - `FavoriteProductDto`.
   - `StockVariantDetailByStoreDto` (nested `BranchBlock`, `StockChip`).
-- **Dashboard DTO'ları**: `LiveCountersDto`, `DailySummaryDto`, `AnomalyDto`, `MonthlyTargetDto`, `ReminderDto`, `TopProductDto`, `WorkloadEstimateDto`, `BranchComparisonDto`, `ProfitLossDto`, `RiskScoreLegendDto`, `RiskScoreRangeDto`.
+- **Dashboard DTO'ları**: `LiveCountersDto`, `DailySummaryDto`, `AnomalyDto`, `MonthlyTargetDto`, `ReminderDto`, `TopProductDto`, `WorkloadEstimateDto`, `BranchComparisonDto`, `ProfitLossDto`, `RiskScoreLegendDto`, `RiskScoreRangeDto`, `DashboardSummaryDto` (birleşik endpoint için - WeeklyTrend, MonthlyTarget, Reminders, WorkloadEstimate, BranchComparison, RiskScoreLegend içerir).
 - **Store DTO'ları**: `StoreDto` (BranchCount alanı), `StoreCreateDto`, `StoreUpdateDto`, `StoreFilter`.
 - **Auth Interfaces**:
   - `ICurrentUserContext`: IsAuthenticated/UserId/BranchId/UserName.
@@ -167,14 +171,16 @@ alwaysApply: true
   - `IStocksService`: paged liste, varyant detay, `GetById`, `GetByBarcode`, CRUD, hard delete, favori ürünler.
   - `IStoresService`: sayfalama, CRUD, set active, hard delete.
   - `IThermalPrintersService`: paged liste, `GetById`, `Create`, `Update`, `Delete`, `HardDelete`.
-  - `IUserService`: `LoginAsync`, `RegisterAsync`, `UserExistsAsync`, `ValidatePasswordAsync`, `ValidateRegisterAsync`.
-  - `IDashboardService`: `GetLiveCountersAsync`, `GetWeeklyTrendAsync`, `GetDailySummaryAsync`, `GetAnomaliesAsync`, `GetMonthlyTargetAsync`, `GetRemindersAsync`, `GetTopProductsAsync`, `GetWorkloadEstimateAsync`, `GetBranchComparisonAsync`, `GetProfitLossAsync`, `GetRiskScoreLegendAsync`.
+  - `IUserService`: `LoginAsync`, `RegisterAsync`, `UserExistsAsync`, `ValidatePasswordAsync`, `ValidateRegisterAsync`, `GetPagedAsync`, `GetByIdAsync`, `UpdateAsync`, `DeleteAsync`, `HardDeleteAsync`.
+  - `IDashboardService`: `GetSummaryAsync` (birleşik endpoint - paralel çağrı), `GetLiveCountersAsync`, `GetWeeklyTrendAsync`, `GetDailySummaryAsync`, `GetAnomaliesAsync`, `GetMonthlyTargetAsync`, `GetRemindersAsync`, `GetTopProductsAsync`, `GetWorkloadEstimateAsync`, `GetBranchComparisonAsync`, `GetProfitLossAsync`, `GetRiskScoreLegendAsync`.
+  - `ITokenBlacklistService`: `InvalidateTokenAsync`, `IsTokenInvalidatedAsync`.
+  - `IRefreshTokenService`: Refresh token yönetimi (oluşturma, doğrulama, iptal etme).
 
 ## Infrastructure Katmanı İncelemesi (Tamamlandı)
 
 - **DependencyInjection**:
   - `AddInfrastructure` → `JwtOptions` ve `PasswordOptions` için options binding + validation.
-  - Service registrations: `JwtService`, `PasswordHasher`, `UserService`, tüm domain servis implementasyonları (`BanksService`, `ProductCategoryService`, `ProductTypeService`, `ProductVariantService`, `StocksService`, `BranchesService`, `StoresService`, `CustomersService`, `PaymentMethodsService`, `PurchasesService`, `SalesService`, `RolesService`, `LimitsService`, `LifecycleActionsService`, `ProductLifecyclesService`, `ThermalPrintersService`, `ReportsService`); `ICurrentUserService` (Auth) + `IHttpContextAccessor`.
+  - Service registrations: `JwtService`, `PasswordHasher`, `UserService`, `TokenBlacklistService`, `RefreshTokenService`, `DashboardService`, tüm domain servis implementasyonları (`BanksService`, `ProductCategoryService`, `ProductTypeService`, `ProductVariantService`, `StocksService`, `BranchesService`, `StoresService`, `CustomersService`, `PaymentMethodsService`, `PurchasesService`, `SalesService`, `RolesService`, `LimitsService`, `LifecycleActionsService`, `ProductLifecyclesService`, `ThermalPrintersService`, `ReportsService`); `ICurrentUserService` (Auth) + `IHttpContextAccessor`.
 - **Auth**:
   - `CurrentUserService` (Infrastructure) → `ICurrentUserService` için `IHttpContextAccessor` ile JWT claim okuma (`UserId`, `UserName`, `IsAuthenticated`).
   - `PasswordOptions` → `Iterations` (1k-1M) default 100k, `Pepper` string.
@@ -190,7 +196,9 @@ alwaysApply: true
   - `BanksService`: paged list (filter: query, isActive, updated range, includeDeleted), `GetById`, `Create`, `Update`, `Delete` (soft), `HardDelete` (ExecuteDelete), `SetActive`.
   - `BranchesService`: paged list (store, active filters), `Create` (returns detail), `Update`, `Delete` (guards: users/stocks/sales/purchases), `HardDelete`, `SetActive`, `GetById`.
   - `CustomersService`: paged query (OnlyActive, query, date filters), `Create`, `Update`, `Delete` (if referenced: mark deleted; else remove).
-  - `JwtService`: base64 key decode, builds HS256 credentials, optional `kid` header, `BuildClaims` yields `sub`, `jti`, `unique_name`, `given_name`, `surname`, `role_id`, `branch_id`, `is_active`.
+  - `JwtService`: base64 key decode, builds HS256 credentials, optional `kid` header, `BuildClaims` yields `sub`, `jti`, `unique_name`, `given_name`, `surname`, `role_id`, `branch_id`, `is_active`, `must_change_password`.
+  - `TokenBlacklistService`: JWT token blacklist yönetimi; `InvalidateTokenAsync` (JTI'yi `InvalidatedTokens` tablosuna ekler), `IsTokenInvalidatedAsync` (JTI kontrolü).
+  - `RefreshTokenService`: Refresh token oluşturma, doğrulama, iptal etme; `RefreshTokens` tablosunu kullanır.
   - `LifecycleActionsService`: paged search, CRUD (simple).
   - `LimitsService`: paged filter by branch/variant, `Create`, `Update`, `Delete`, `GetById`.
   - `PaymentMethodsService`: paged, `Create`, `Update`, `Delete` (soft if referenced by sales/purchases).
@@ -201,19 +209,21 @@ alwaysApply: true
   - `PurchasesService`: transaction create; loops items: create/merge stock, add `PurchaseDetails`, add lifecycle "Purchase"; paged join (branch/user/customer/payment) with totals; `GetById` returns header + lines.
   - `RolesService`: list, get, create (duplicate guard), update (duplicate guard), delete.
   - `SalesService`: birleşik fiş akışı (`CreateUnifiedAsync`); müşteri upsert, satış kalemlerinde yalnızca `StockId + Quantity + SoldPrice` ile stok düşer (yetersiz stokta hata -> 400 ApiResult), alış kalemleri zorunlu `ProductVariantId + BranchId + Quantity + PurchasePrice` ve opsiyonel barkod ile stok oluşturur; `GenerateQrCode` true ise yeni stok için QR üretimi tetikler; tek transaction, lifecycle kayıtları ve çoklu ödeme; ayrıca `GetPagedAsync`, `GetLineByIdAsync`.
-  - `StocksService`: paged list filtered by branch (from filter or current user), includes product variant/type/category info; `GetVariantDetailInStoreAsync` aggregates variant across store; `GetById`, `GetByBarcode`; `Create` merge ederken quantity artırır, yeni stokta barkod boşsa otomatik benzersiz üretir ve istenirse stok JSON'unu base64 olarak `QrCode` alanına yazar (QR payload tek adetlik bilgi içerir, merge sırasında yeniden oluşturulmaz); `Update`, `Delete` (guards referenced records), `HardDelete`; `GetFavoritesAsync` (top sold variants).
+  - `StocksService`: `GetPagedAsync` - aynı `ProductVariantId + BranchId`'ye sahip stokları gruplayarak toplam adet (`TotalQuantity`) ve toplam ağırlık (`TotalWeight`) ile tek kayıt olarak döndürür (gruplama yapıldığı için `StockDto.Id = 0`, `Barcode = string.Empty`, `QrCode = null`, `Gram = null`); branch filtresi (filter veya current user); `GetVariantDetailInStoreAsync` aggregates variant across store; `GetById`, `GetByBarcode`; `Create` merge ederken quantity artırır, yeni stokta barkod boşsa otomatik benzersiz üretir ve istenirse stok JSON'unu base64 olarak `QrCode` alanına yazar (QR payload tek adetlik bilgi içerir, merge sırasında yeniden oluşturulmaz); `Update`, `Delete` (guards referenced records), `HardDelete`; `GetFavoritesAsync` (top sold variants).
   - `StoresService`: paged (include deleted, active filters) with branch count; `Create`, `Update`, `Delete` (guard branches), `HardDelete`, `SetActive`, `GetById`.
   - `ThermalPrintersService`: branch başına tek yazıcı kuralı, paged list, detail, create/update/delete/hard delete; IP/port ve branch doğrulaması yapıyor.
   - `UserService`: username normalization/lowercase; `RegisterAsync` validates username (PasswordPolicy), ensures unique & valid role/branch, hashes password (salt/pepper), stores `Users`; `LoginAsync` verifies, returns JWT; `UserExistsAsync`; `ValidatePasswordAsync` / `ValidateRegisterAsync` returning `ApiResult`.
-  - `DashboardService`: dashboard verilerini toplar; `GetLiveCountersAsync` (son satış zamanı, bugünkü işlem sayısı), `GetWeeklyTrendAsync` (haftalık trend), `GetDailySummaryAsync` (gün sonu raporu), `GetAnomaliesAsync` (anomali algılama), `GetMonthlyTargetAsync` (aylık hedef - `MonthlyTargets` tablosundan okur), `GetRemindersAsync` (kritik stok, satış verisi yoksa uygun mesaj), `GetTopProductsAsync` (en çok satan ürünler), `GetWorkloadEstimateAsync` (hibrit yaklaşım: mutlak eşikler + yüzde bazlı), `GetBranchComparisonAsync` (şube karşılaştırması), `GetProfitLossAsync` (kar-zarar), `GetRiskScoreLegendAsync` (risk skor sözlüğü); SignalR broadcast desteği.
+  - `DashboardService`: dashboard verilerini toplar; `GetSummaryAsync` (birleşik endpoint - parametresiz metodları paralel çağırır, broadcast yapmaz), `GetLiveCountersAsync` (son satış zamanı, bugünkü işlem sayısı, SignalR broadcast), `GetWeeklyTrendAsync` (haftalık trend), `GetDailySummaryAsync` (gün sonu raporu, SignalR broadcast), `GetAnomaliesAsync` (anomali algılama, SignalR broadcast), `GetMonthlyTargetAsync` (aylık hedef - `MonthlyTargets` tablosundan okur), `GetRemindersAsync` (kritik stok, satış verisi yoksa uygun mesaj), `GetTopProductsAsync` (en çok satan ürünler), `GetWorkloadEstimateAsync` (hibrit yaklaşım: mutlak eşikler + yüzde bazlı), `GetBranchComparisonAsync` (şube karşılaştırması), `GetProfitLossAsync` (kar-zarar), `GetRiskScoreLegendAsync` (risk skor sözlüğü); SignalR broadcast desteği (`DashboardHub`).
 
 ## API Katmanı İncelemesi (Tamamlandı)
 
 - **Program.cs**:
-  - Base64 JWT key decode helper; registers Persistence, Infrastructure, `ICurrentUserContext`, controllers.
-  - JWT Bearer auth: validates issuer/audience/signing key, `ClockSkew=0`, logs auth events.
+  - Base64 JWT key decode helper; registers Persistence, Infrastructure, `ICurrentUserContext`, controllers, SignalR.
+  - SignalR: `AddSignalR()`, `MapHub<DashboardHub>("/api/hubs/dashboard")`; CORS policy (`SignalRCorsPolicy`) credentials ile.
+  - CORS: SignalR için özel policy (credentials gerekli), default policy diğer endpoint'ler için.
+  - JWT Bearer auth: validates issuer/audience/signing key, `ClockSkew=0`, logs auth events; `OnTokenValidated` event'inde token blacklist kontrolü (`ITokenBlacklistService.IsTokenInvalidatedAsync`); `OnMessageReceived` event'inde SignalR için query string'den token alma desteği.
   - Swagger: Bearer scheme (header expects raw token), includes XML docs from API/Application/Infrastructure.
-  - Pipeline: HTTPS redirection → authentication → authorization → controllers; `app.MigrateAndSeedAsync()` çağrısı `Run` öncesi.
+  - Pipeline: HTTPS redirection → CORS → static files → authentication → authorization → controllers → SignalR hub → `app.MigrateAndSeedAsync()` → `Run`.
 - **AuthController**:
   - `POST /api/auth/register` → `IUserService.RegisterAsync`; on success returns Created with JWT.
   - `POST /api/auth/login` → returns token or 401.
@@ -235,10 +245,11 @@ alwaysApply: true
 - **ThermalPrintersController**:
   - `GET` paged, `GET {id}`, `POST`, `PUT`, `DELETE`, `DELETE /hard` (Authorize).
 - **DashboardController**:
-  - `GET /api/dashboard/live-counters` → gerçek zamanlı canlı sayaçlar.
+  - `GET /api/dashboard/summary` → tüm parametresiz dashboard verilerini tek seferde döndürür (birleşik endpoint - broadcast yapmaz, paralel çağrı).
+  - `GET /api/dashboard/live-counters` → gerçek zamanlı canlı sayaçlar (SignalR broadcast).
   - `GET /api/dashboard/weekly-trend` → haftalık trend grafik verisi.
-  - `GET /api/dashboard/daily-summary` → gün sonu raporu (tarih opsiyonel).
-  - `GET /api/dashboard/anomalies` → anomali algılama.
+  - `GET /api/dashboard/daily-summary` → gün sonu raporu (tarih opsiyonel, SignalR broadcast).
+  - `GET /api/dashboard/anomalies` → anomali algılama (SignalR broadcast).
   - `GET /api/dashboard/monthly-target` → aylık satış hedefi (veritabanından okur).
   - `GET /api/dashboard/reminders` → hatırlatıcılar ve ajanda.
   - `GET /api/dashboard/top-products` → en çok satan ürünler (limit ve period parametreleri).
@@ -264,12 +275,12 @@ alwaysApply: true
 - **Interface İsim Tutarsızlığı**: `ICustomerService` → `ICustomersService` olmalı (çoğul, diğer servislerle uyumlu).
 
 ### Controller Endpoint Özeti
-- **Toplam**: 19 Controller, 112+ Endpoint (ReportsController kaldırıldı, DashboardController eklendi)
+- **Toplam**: 19 Controller, 113+ Endpoint (ReportsController kaldırıldı, DashboardController eklendi, summary endpoint eklendi)
 - **AuthController**: 4 endpoint (register, login, validate-password, validate-register)
 - **BanksController**: 7 endpoint (CRUD + /active + /hard)
 - **BranchesController**: 7 endpoint (CRUD + /active + /hard)
 - **CustomersController**: 5 endpoint (CRUD)
-- **DashboardController**: 11 endpoint (live-counters, weekly-trend, daily-summary, anomalies, monthly-target, reminders, top-products, workload-estimate, branch-comparison, profit-loss, risk-score-legend)
+- **DashboardController**: 12 endpoint (summary, live-counters, weekly-trend, daily-summary, anomalies, monthly-target, reminders, top-products, workload-estimate, branch-comparison, profit-loss, risk-score-legend)
 - **LifecycleActionsController**: 5 endpoint (CRUD)
 - **LimitsController**: 5 endpoint (CRUD)
 - **PaymentMethodsController**: 5 endpoint (CRUD)
@@ -303,7 +314,9 @@ alwaysApply: true
 - **IPaymentMethodsService**: 5 metod (GetPaged, GetById, Create, Update, Delete)
 - **IThermalPrintersService**: 6 metod (GetPaged, GetById, Create, Update, Delete, HardDelete)
 - **IUserService**: 10 metod (Login, Register, UserExists, ValidatePassword, ValidateRegister, GetPaged, GetById, Update, Delete, HardDelete)
-- **IDashboardService**: 11 metod (GetLiveCounters, GetWeeklyTrend, GetDailySummary, GetAnomalies, GetMonthlyTarget, GetReminders, GetTopProducts, GetWorkloadEstimate, GetBranchComparison, GetProfitLoss, GetRiskScoreLegend)
+- **IDashboardService**: 12 metod (GetSummary, GetLiveCounters, GetWeeklyTrend, GetDailySummary, GetAnomalies, GetMonthlyTarget, GetReminders, GetTopProducts, GetWorkloadEstimate, GetBranchComparison, GetProfitLoss, GetRiskScoreLegend)
+- **ITokenBlacklistService**: 2 metod (InvalidateToken, IsTokenInvalidated)
+- **IRefreshTokenService**: Refresh token yönetimi metodları
 - **IJwtService**: 1 metod (GenerateToken)
 - **IPasswordHasher**: 3 metod (GenerateSalt, Hash, Verify)
 

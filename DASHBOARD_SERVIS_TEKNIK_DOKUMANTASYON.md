@@ -89,7 +89,58 @@ ML.NET paketleri yüklü ve aşağıdaki senaryolarda kullanılabilir:
 
 ## DashboardService Metodları
 
-### 1. GetLiveCountersAsync
+### 1. GetSummaryAsync
+
+**Endpoint**: `GET /api/dashboard/summary`  
+**Yetkilendirme**: JWT Token gerekli  
+**Açıklama**: Tüm parametresiz dashboard verilerini tek seferde döndürür (birleşik endpoint - broadcast yapmaz)
+
+#### Teknik Detaylar
+
+**Veri Toplama**: Metod, aşağıdaki parametresiz dashboard metodlarını **paralel olarak** çağırır:
+- `GetWeeklyTrendAsync`
+- `GetMonthlyTargetAsync`
+- `GetRemindersAsync`
+- `GetWorkloadEstimateAsync`
+- `GetBranchComparisonAsync`
+- `GetRiskScoreLegendAsync`
+
+**Paralel İşleme**:
+```csharp
+var weeklyTrendTask = GetWeeklyTrendAsync(ct);
+var monthlyTargetTask = GetMonthlyTargetAsync(ct);
+var remindersTask = GetRemindersAsync(ct);
+var workloadEstimateTask = GetWorkloadEstimateAsync(ct);
+var branchComparisonTask = GetBranchComparisonAsync(ct);
+var riskScoreLegendTask = GetRiskScoreLegendAsync(ct);
+```
+
+**Hata Yönetimi**: Her task bağımsız olarak işlenir. Bir task başarısız olsa bile diğerleri etkilenmez. Hata durumunda log yazılır ve ilgili alan `null` veya boş liste olarak kalır.
+
+**Dönüş Tipi**: `ApiResult<DashboardSummaryDto>`
+
+**DashboardSummaryDto Yapısı**:
+```csharp
+public sealed class DashboardSummaryDto
+{
+    public SalesTrendReportDto? WeeklyTrend { get; set; }
+    public MonthlyTargetDto? MonthlyTarget { get; set; }
+    public List<ReminderDto> Reminders { get; set; } = new();
+    public WorkloadEstimateDto? WorkloadEstimate { get; set; }
+    public BranchComparisonDto? BranchComparison { get; set; }
+    public RiskScoreLegendDto? RiskScoreLegend { get; set; }
+}
+```
+
+**Önemli Notlar**:
+- Bu endpoint **broadcast yapmaz** (SignalR event göndermez)
+- Broadcast yapan endpoint'ler: `live-counters`, `daily-summary`, `anomalies`
+- Frontend'de tek bir API çağrısı ile tüm parametresiz dashboard verilerini almak için kullanılır
+- Paralel işleme sayesinde performans optimize edilmiştir
+
+---
+
+### 2. GetLiveCountersAsync
 
 **Endpoint**: `GET /api/dashboard/live-counters`  
 **Yetkilendirme**: JWT Token gerekli  
@@ -137,7 +188,7 @@ var lastStockSync = await _db.Stocks
 
 ---
 
-### 2. GetWeeklyTrendAsync
+### 3. GetWeeklyTrendAsync
 
 **Endpoint**: `GET /api/dashboard/weekly-trend`  
 **Yetkilendirme**: JWT Token gerekli  
@@ -155,7 +206,7 @@ var lastStockSync = await _db.Stocks
 
 ---
 
-### 3. GetDailySummaryAsync
+### 4. GetDailySummaryAsync
 
 **Endpoint**: `GET /api/dashboard/daily-summary?date={DateTime?}`  
 **Yetkilendirme**: JWT Token gerekli  
@@ -203,7 +254,7 @@ var totalCost = await (from d in _db.PurchaseDetails
 
 ---
 
-### 4. GetAnomaliesAsync
+### 5. GetAnomaliesAsync
 
 **Endpoint**: `GET /api/dashboard/anomalies`  
 **Yetkilendirme**: JWT Token gerekli  
@@ -249,7 +300,7 @@ var dailySales = await (from d in _db.SaleDetails
 
 ---
 
-### 5. GetMonthlyTargetAsync
+### 6. GetMonthlyTargetAsync
 
 **Endpoint**: `GET /api/dashboard/monthly-target`  
 **Yetkilendirme**: JWT Token gerekli  
@@ -292,7 +343,7 @@ var monthlyTarget = await _db.MonthlyTargets
 
 ---
 
-### 6. GetRemindersAsync
+### 7. GetRemindersAsync
 
 **Endpoint**: `GET /api/dashboard/reminders`  
 **Yetkilendirme**: JWT Token gerekli  
@@ -335,7 +386,7 @@ var criticalStocks = await (from s in _db.Stocks
 
 ---
 
-### 7. GetTopProductsAsync
+### 8. GetTopProductsAsync
 
 **Endpoint**: `GET /api/dashboard/top-products?limit=5&period=week`  
 **Yetkilendirme**: JWT Token gerekli  
@@ -385,7 +436,7 @@ var topProducts = await (from d in _db.SaleDetails
 
 ---
 
-### 8. GetWorkloadEstimateAsync
+### 9. GetWorkloadEstimateAsync
 
 **Endpoint**: `GET /api/dashboard/workload-estimate`  
 **Yetkilendirme**: JWT Token gerekli  
@@ -456,7 +507,7 @@ var combined = dailyTransactions
 
 ---
 
-### 9. GetBranchComparisonAsync
+### 10. GetBranchComparisonAsync
 
 **Endpoint**: `GET /api/dashboard/branch-comparison`  
 **Yetkilendirme**: JWT Token gerekli  
@@ -513,7 +564,7 @@ var posPayments = await (from sp in _db.SalePayments
 
 ---
 
-### 10. GetProfitLossAsync
+### 11. GetProfitLossAsync
 
 **Endpoint**: `GET /api/dashboard/profit-loss?period=week`  
 **Yetkilendirme**: JWT Token gerekli  
@@ -573,7 +624,7 @@ var salesData = salesRaw
 
 ---
 
-### 11. GetRiskScoreLegendAsync
+### 12. GetRiskScoreLegendAsync
 
 **Endpoint**: `GET /api/dashboard/risk-score-legend`  
 **Yetkilendirme**: JWT Token gerekli  
@@ -807,9 +858,32 @@ percentage = (estimatedCount / averageCount) * 100
 
 ### Hub Yapılandırması
 
-**Hub URL**: `/hubs/dashboard`  
+**Hub URL**: `/api/hubs/dashboard`  
 **Hub Sınıfı**: `DashboardHub`  
-**Namespace**: `KuyumStokApi.API.Hubs`
+**Namespace**: `KuyumStokApi.Application.Hubs`
+
+**Yapılandırma** (`Program.cs`):
+```csharp
+builder.Services.AddSignalR();
+
+// CORS yapılandırması (SignalR için gerekli)
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("SignalRCorsPolicy", policy =>
+    {
+        policy.SetIsOriginAllowed(_ => true)
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
+    });
+});
+
+// Hub mapping
+app.MapHub<DashboardHub>("/api/hubs/dashboard")
+   .RequireCors("SignalRCorsPolicy");
+```
+
+**JWT Authentication**: SignalR bağlantıları JWT token ile doğrulanır. Token query string'den (`access_token`) veya Authorization header'dan alınabilir.
 
 ### Broadcast Event'leri
 
@@ -986,7 +1060,12 @@ Dashboard servisi, kuyum stok yönetim sisteminin analitik omurgasını oluştur
 
 ---
 
-**Dokümantasyon Versiyonu**: 1.0  
-**Son Güncelleme**: 2024  
+**Dokümantasyon Versiyonu**: 1.1  
+**Son Güncelleme**: 8 Aralık 2025  
 **Yazar**: KuyumStokApi Development Team
+
+**Güncellemeler**:
+- `GetSummaryAsync` metodu eklendi (birleşik endpoint)
+- SignalR hub URL'i güncellendi (`/api/hubs/dashboard`)
+- JWT authentication ve CORS yapılandırması eklendi
 

@@ -1,6 +1,6 @@
 # KUYUMSTOKAPI - EKSİKSİZ DETAYLI PROJE DOKÜMANTASYONU
 
-> **Güncellenme Tarihi**: 9 Kasım 2025  
+> **Güncellenme Tarihi**: 8 Aralık 2025  
 > **Proje**: Kuyum (Kuyumcu) Stok Yönetim Sistemi API  
 > **Teknoloji**: ASP.NET Core 8.0 Web API, Entity Framework Core, PostgreSQL  
 > **Mimari**: Clean Architecture (Layered Architecture)  
@@ -124,6 +124,7 @@ API → Application → Infrastructure → Persistence
 - BanksService
 - BranchesService
 - CustomersService
+- DashboardService (Dashboard verileri ve analitik)
 - JwtService (Token üretimi)
 - LifecycleActionsService
 - LimitsService
@@ -133,10 +134,13 @@ API → Application → Infrastructure → Persistence
 - ProductTypeService
 - ProductVariantService
 - PurchasesService
+- RefreshTokenService (Refresh token yönetimi)
 - RolesService
 - SalesService
 - StocksService
 - StoresService
+- ThermalPrintersService
+- TokenBlacklistService (JWT token blacklist yönetimi)
 - UserService
 
 ### 3.4 Persistence Layer (KuyumStokApi.Persistence)
@@ -208,6 +212,7 @@ API → Application → Infrastructure → Persistence
 | **DeletedBy** | int? | Kim tarafından silindi? |
 | **CreatedAt** | DateTime? | Oluşturulma tarihi |
 | **UpdatedAt** | DateTime? | Güncellenme tarihi |
+| **MustChangePassword** | bool | İlk girişte parola değiştirme zorunluluğu (default: false) |
 
 **İlişkiler**:
 - **Role** (Many-to-One): Bir kullanıcının bir rolü vardır
@@ -215,6 +220,7 @@ API → Application → Infrastructure → Persistence
 - **Purchases** (One-to-Many): Kullanıcı birden fazla alış işlemi yapabilir
 - **Sales** (One-to-Many): Kullanıcı birden fazla satış işlemi yapabilir
 - **ProductLifecycles** (One-to-Many): Kullanıcı ürün hareketleri kaydeder
+- **RefreshTokens** (One-to-Many): Kullanıcının refresh token'ları
 
 **İş Mantığı**:
 - Kullanıcı adı benzersiz olmalıdır
@@ -895,6 +901,63 @@ Bir şube için yalnızca bir yazıcı yapılandırması olabilir.
 | **IsDeleted** | bool | Soft delete (default: false) |
 | **DeletedAt** | DateTime? | Silinme tarihi |
 | **DeletedBy** | int? | Silen kullanıcı ID |
+
+---
+
+### 4.22 RefreshTokens (Yenileme Token'ları)
+
+**Tablo**: `refresh_tokens`  
+**Amaç**: JWT refresh token'larını saklar. Kullanıcıların oturumlarını yenilemek için kullanılır.
+
+**Alanlar**:
+
+| Alan | Tip | Açıklama |
+|------|-----|----------|
+| **Id** | int | Birincil anahtar |
+| **UserId** | int | Kullanıcı ID (Foreign Key → Users) |
+| **Token** | string | Refresh token değeri (Unique) |
+| **ExpiresAt** | DateTime | Token sona erme tarihi |
+| **IsRevoked** | bool | Token iptal edildi mi? (default: false) |
+| **RevokedAt** | DateTime? | İptal edilme tarihi |
+| **CreatedAt** | DateTime | Oluşturulma tarihi (default: CURRENT_TIMESTAMP) |
+
+**Unique Constraint**:
+- `token` kolonu unique (her token benzersiz)
+
+**İlişkiler**:
+- **User** (Many-to-One): Bir kullanıcının birden fazla refresh token'ı olabilir
+
+**İş Mantığı**:
+- Refresh token'lar kullanıcı oturumlarını yenilemek için kullanılır
+- Token iptal edildiğinde `IsRevoked = true` ve `RevokedAt` set edilir
+- Expire olan token'lar otomatik olarak geçersiz sayılır
+
+---
+
+### 4.23 InvalidatedTokens (Geçersiz Kılınmış Token'lar)
+
+**Tablo**: `invalidated_tokens`  
+**Amaç**: Logout yapılan veya geçersiz kılınan JWT token'larını (JTI - JWT ID) saklar. Token blacklist mekanizması için kullanılır.
+
+**Alanlar**:
+
+| Alan | Tip | Açıklama |
+|------|-----|----------|
+| **Id** | int | Birincil anahtar |
+| **Jti** | string | JWT ID (JWT'nin benzersiz kimliği, Unique) |
+| **ExpiresAt** | DateTime | Token sona erme tarihi |
+| **InvalidatedAt** | DateTime | Geçersiz kılınma tarihi (default: CURRENT_TIMESTAMP) |
+
+**Unique Constraint**:
+- `jti` kolonu unique (her JTI benzersiz)
+
+**NOT**: Bu entity'de soft delete YOKTUR. Bu mantıklıdır çünkü geçersiz kılınan token'lar kalıcı olarak saklanmalıdır (güvenlik için).
+
+**İş Mantığı**:
+- Kullanıcı logout yaptığında JWT'nin JTI değeri bu tabloya eklenir
+- JWT doğrulama sırasında JTI bu tabloda kontrol edilir
+- Token expire olduğunda otomatik olarak geçersiz sayılır
+- Token blacklist servisi (`ITokenBlacklistService`) bu tabloyu kullanır
 | **IsActive** | bool | Aktif mi? (default: true) |
 
 **Unique Constraint**:
@@ -1261,7 +1324,7 @@ public string GenerateToken(Users user)
 
 | Metod | Dönüş Tipi | Açıklama |
 |-------|-----------|----------|
-| `GetPagedAsync(StockFilter, CancellationToken)` | `Task<ApiResult<PagedResult<StockDto>>>` | Stokları filtreleyerek sayfalı listeler (branch bazlı) |
+| `GetPagedAsync(StockFilter, CancellationToken)` | `Task<ApiResult<PagedResult<StockDto>>>` | Aynı `ProductVariantId + BranchId`'ye sahip stokları gruplayarak toplam adet (`TotalQuantity`) ve toplam ağırlık (`TotalWeight`) ile tek kayıt olarak döndürür. Gruplama yapıldığı için `StockDto.Id = 0`, `Barcode = string.Empty`, `QrCode = null`, `Gram = null` olarak döner. Branch filtresi (filter veya current user). |
 | `GetVariantDetailInStoreAsync(int, CancellationToken)` | `Task<ApiResult<StockVariantDetailByStoreDto>>` | Varyantın tüm şubelerdeki durumunu getirir |
 | `GetByIdAsync(int, CancellationToken)` | `Task<ApiResult<StockDto>>` | ID ile stok detayı |
 | `GetByBarcodeAsync(string, CancellationToken)` | `Task<ApiResult<StockDto>>` | Barcode ile stok |
@@ -1726,8 +1789,12 @@ Response:
 | GET | `/api/dashboard/branch-comparison` | Şube karşılaştırması (satış, kâr, fiş sayısı, POS oranı, kritik stok, trend) | Evet |
 | GET | `/api/dashboard/profit-loss` | Kar-Zarar tablosu (dönemsel kar-zarar analizi) | Evet |
 | GET | `/api/dashboard/risk-score-legend` | Risk skor sözlüğü (0-100 aralığında risk seviyeleri ve açıklamaları) | Evet |
+| GET | `/api/dashboard/summary` | Tüm parametresiz dashboard verilerini tek seferde döndürür (birleşik endpoint - broadcast yapmaz) | Evet |
 
 **Önemli Notlar**:
+- `summary` endpoint'i tüm parametresiz dashboard metodlarını paralel olarak çağırır (weekly-trend, monthly-target, reminders, workload-estimate, branch-comparison, risk-score-legend)
+- `summary` endpoint'i broadcast yapmaz, sadece tek seferlik veri döndürür
+- Broadcast yapan endpoint'ler: `live-counters`, `daily-summary`, `anomalies`
 - `monthly-target` endpoint'i `MonthlyTargets` tablosundan hedef tutarı okur (mağaza bazlı)
 - `workload-estimate` hibrit yaklaşım kullanır: mutlak eşikler (0-5=Düşük, 6-15=Orta, 16+=Yüksek) + yüzde bazlı kontrol
 - `reminders` endpoint'i satış verisi yoksa uygun mesaj döndürür
@@ -1774,7 +1841,7 @@ Response:
 | **ProductTypeController** | 7 | ✅ | /active, /hard |
 | **ProductVariantController** | 7 | ✅ | /active, /hard |
 | **PurchaseController** | 3 | ⚠️ | - (sadece GET, POST) |
-| **DashboardController** | 11 | ❌ | live-counters, weekly-trend, daily-summary, anomalies, monthly-target, reminders, top-products, workload-estimate, branch-comparison, profit-loss, risk-score-legend |
+| **DashboardController** | 12 | ❌ | summary, live-counters, weekly-trend, daily-summary, anomalies, monthly-target, reminders, top-products, workload-estimate, branch-comparison, profit-loss, risk-score-legend |
 | **RolesController** | 5 | ✅ | - |
 | **SalesController** | 3 | ⚠️ | - (CreateUnifiedAsync kullanır) |
 | **StocksController** | 9 | ✅ | /variant/{id}/detail, /by-barcode/{barcode}, /favorites, /hard |
@@ -1782,7 +1849,7 @@ Response:
 | **ThermalPrintersController** | 6 | ✅ | /hard |
 | **UsersController** | 5 | ⚠️ | - (Create yok, Register AuthController'da) |
 
-**Toplam**: 19 Controller, 112+ Endpoint (ReportsController kaldırıldı, DashboardController eklendi)
+**Toplam**: 19 Controller, 113+ Endpoint (ReportsController kaldırıldı, DashboardController eklendi, summary endpoint eklendi)
 
 ---
 
@@ -2637,6 +2704,7 @@ public sealed class JwtService : IJwtService
             yield return new Claim("branch_id", user.BranchId.Value.ToString());
         
         yield return new Claim("is_active", user.IsActive ?? false ? "true" : "false");
+        yield return new Claim("must_change_password", user.MustChangePassword ? "true" : "false");
     }
 }
 
@@ -2753,9 +2821,18 @@ public class StocksService : IStocksService
         // Kullanıcı branch'ı JWT'den otomatik al
         var branchId = filter.BranchId ?? _user.BranchId;
         
-        var query = _db.Stocks
-            .Where(s => s.BranchId == branchId)
-            // ...
+        // Aynı ProductVariantId + BranchId'ye sahip stokları grupla
+        var grouped = from s in _db.Stocks
+                      where s.BranchId == branchId
+                      group s by new { s.ProductVariantId, s.BranchId } into g
+                      select new {
+                          ProductVariantId = g.Key.ProductVariantId,
+                          BranchId = g.Key.BranchId,
+                          TotalQuantity = g.Sum(x => x.Quantity ?? 0),
+                          TotalWeight = g.Sum(x => (x.Gram ?? 0) * (decimal)(x.Quantity ?? 0))
+                          // ...
+                      };
+        // ...
     }
 }
 ```
@@ -2834,7 +2911,44 @@ services.AddScoped<ICurrentUserService, CurrentUserService>();
 
 ---
 
-### 8.4 Program.cs JWT Yapılandırması
+### 8.4 Token Blacklist Servisi (ITokenBlacklistService)
+
+**Dosya**: `Application/Interfaces/Services/ITokenBlacklistService.cs` ve `Infrastructure/Services/TokenBlacklistService/TokenBlacklistService.cs`
+
+**Amaç**: Logout yapılan JWT token'larını geçersiz kılmak için blacklist mekanizması sağlar.
+
+**Interface**:
+```csharp
+public interface ITokenBlacklistService
+{
+    Task InvalidateTokenAsync(string jti, DateTime expiresAt, CancellationToken ct = default);
+    Task<bool> IsTokenInvalidatedAsync(string jti, CancellationToken ct = default);
+}
+```
+
+**Implementation**:
+- `InvalidateTokenAsync`: JWT'nin JTI değerini `InvalidatedTokens` tablosuna ekler
+- `IsTokenInvalidatedAsync`: JTI'nin blacklist'te olup olmadığını kontrol eder
+
+**Kullanım**: JWT doğrulama sırasında (`Program.cs` içinde `OnTokenValidated` event'inde) token blacklist kontrolü yapılır.
+
+---
+
+### 8.5 Refresh Token Servisi (IRefreshTokenService)
+
+**Amaç**: Kullanıcı oturumlarını yenilemek için refresh token yönetimi sağlar.
+
+**Özellikler**:
+- Refresh token oluşturma ve saklama
+- Token iptal etme (revoke)
+- Token doğrulama
+- Expire olan token'ları temizleme
+
+**İlişkiler**: `RefreshTokens` entity'si `Users` ile Many-to-One ilişkilidir.
+
+---
+
+### 8.6 Program.cs JWT Yapılandırması ve SignalR
 
 **Tam Pipeline**:
 ```csharp
@@ -2858,9 +2972,34 @@ var builder = WebApplication.CreateBuilder(args);
 var cfg = builder.Configuration;
 
 builder.Services.AddControllers();
+builder.Services.AddSignalR(); // SignalR desteği
+
+// CORS yapılandırması (SignalR için gerekli)
+builder.Services.AddCors(options =>
+{
+    // SignalR için özel policy
+    options.AddPolicy("SignalRCorsPolicy", policy =>
+    {
+        policy.SetIsOriginAllowed(_ => true) // DEV: Tüm origin'lere izin (production'da spesifik origin'ler)
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials(); // SignalR için credentials gerekli
+    });
+    
+    // Default policy (diğer endpoint'ler için)
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.SetIsOriginAllowed(_ => true)
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
+    });
+});
+
 builder.Services.AddPersistence(cfg);
 builder.Services.AddInfrastructure(cfg);
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUserContext, CurrentUserContext>();
 
 // JWT Authentication
 builder.Services
@@ -2878,6 +3017,48 @@ builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
             ValidateLifetime = true,
             ClockSkew = TimeSpan.Zero  // Token expire olunca hemen geçersiz
+        };
+        
+        // Token blacklist kontrolü
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async ctx =>
+            {
+                var jtiClaim = ctx.Principal?.FindFirst(JwtRegisteredClaimNames.Jti);
+                if (jtiClaim != null)
+                {
+                    var tokenBlacklistService = ctx.HttpContext.RequestServices
+                        .GetRequiredService<ITokenBlacklistService>();
+                    var isInvalidated = await tokenBlacklistService.IsTokenInvalidatedAsync(jtiClaim.Value);
+                    if (isInvalidated)
+                    {
+                        ctx.Fail("Token geçersiz kılınmış (logout yapılmış).");
+                        return;
+                    }
+                }
+            },
+            OnMessageReceived = context =>
+            {
+                // SignalR için query string'den token al
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/api/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+                // Authorization header'dan da al
+                else if (context.Request.Headers.ContainsKey("Authorization"))
+                {
+                    var authHeader = context.Request.Headers["Authorization"].ToString();
+                    if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        context.Token = authHeader.Substring("Bearer ".Length).Trim();
+                    }
+                }
+                
+                return Task.CompletedTask;
+            }
         };
     });
 
@@ -2921,9 +3102,24 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// CORS (Authentication'dan önce olmalı)
+app.UseCors();
+
+// Static files (test HTML sayfası için)
+app.UseStaticFiles();
+
 app.UseAuthentication();  // JWT middleware (ÖNCE!)
 app.UseAuthorization();   // Authorization middleware (SONRA!)
+
 app.MapControllers();
+
+// SignalR hub'ına özel CORS policy uygula
+app.MapHub<DashboardHub>("/api/hubs/dashboard")
+   .RequireCors("SignalRCorsPolicy");
+
+// Veritabanı migration ve seed data (app.Run öncesi!)
+await app.MigrateAndSeedAsync();
 
 app.Run();
 ```
@@ -3464,16 +3660,23 @@ dotnet run
 
 ---
 
-**Doküman Tarihi**: 28 Kasım 2025  
-**Versiyon**: 1.1  
+**Doküman Tarihi**: 8 Aralık 2025  
+**Versiyon**: 1.2  
 **Hazırlayan**: AI Assistant  
 **Güncellemeler**: 
 - MonthlyTargets entity eklendi (aylık satış hedefleri)
-- DashboardController eklendi (11 endpoint)
+- DashboardController eklendi (12 endpoint - summary endpoint eklendi)
 - ReportsController kaldırıldı
 - Risk Score Legend endpoint eklendi
 - Workload-estimate hibrit yaklaşımla güncellendi
 - Reminders endpoint'i avgDailySales = 0 kontrolü eklendi
+- RefreshTokens ve InvalidatedTokens entity'leri eklendi (JWT token yönetimi)
+- Users entity'sine MustChangePassword alanı eklendi
+- TokenBlacklistService eklendi (JWT token blacklist mekanizması)
+- RefreshTokenService eklendi (refresh token yönetimi)
+- SignalR hub yapılandırması eklendi (DashboardHub - real-time güncellemeler)
+- JWT authentication'a token blacklist kontrolü eklendi
+- CORS yapılandırması eklendi (SignalR desteği için)
 
 ---
 

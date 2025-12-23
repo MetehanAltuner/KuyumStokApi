@@ -224,7 +224,7 @@
         <div class="connection-panel">
             <div class="input-group">
                 <label for="hubUrl">Hub URL:</label>
-                <input type="text" id="hubUrl" value="https://localhost:7292/hubs/dashboard" placeholder="https://localhost:7292/hubs/dashboard">
+                <input type="text" id="hubUrl" value="http://130.162.231.124/api/hubs/dashboard" placeholder="http://130.162.231.124/api/hubs/dashboard">
             </div>
 
             <div class="input-group">
@@ -308,22 +308,14 @@
             addLog(`Hub'a bağlanılıyor: ${hubUrl}`, 'info');
             updateStatus('connecting', 'Bağlanıyor...');
 
-            // Token varsa query string'e ekle
-            let finalUrl = hubUrl;
-            if (token) {
-                const separator = hubUrl.includes('?') ? '&' : '?';
-                finalUrl = `${hubUrl}${separator}access_token=${encodeURIComponent(token)}`;
-            }
-
             // SignalR bağlantısı oluştur
+            // accessTokenFactory kullanıldığında SignalR otomatik olarak token'ı 
+            // hem query string (access_token) hem de Authorization header olarak ekler
             connection = new signalR.HubConnectionBuilder()
-                .withUrl(finalUrl, {
-                    accessTokenFactory: token ? () => token : null,
+                .withUrl(hubUrl, {
+                    accessTokenFactory: token ? () => token : undefined,
                     skipNegotiation: false,
                     transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.LongPolling | signalR.HttpTransportType.ServerSentEvents,
-                    headers: token ? {
-                        'Authorization': `Bearer ${token}`
-                    } : {},
                     withCredentials: true // CORS için credentials gönder
                 })
                 .withAutomaticReconnect({
