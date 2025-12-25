@@ -396,8 +396,6 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                     Width = item.Width,
                     StoneType = item.StoneType,
                     Carat = item.Carat,
-                    Milyem = item.Milyem,
-                    RawMilyem = item.RawMilyem,
                     WorkmanshipMilyem = item.WorkmanshipMilyem,
                     Color = item.Color,
                     PurchasePrice = item.PurchasePrice

@@ -14,7 +14,6 @@ namespace KuyumStokApi.Application.DTOs.Purchase
         public string Barcode { get; set; } = default!; // stocks.barcode UNIQUE
         public int Quantity { get; set; }               // +adet
         public decimal PurchasePrice { get; set; }      // detay tablosu için
-        public int? RawMilyem { get; set; }
         public int? WorkmanshipMilyem { get; set; }
     }
 

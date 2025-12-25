@@ -76,6 +76,7 @@ public static class DbInitExtensions
                     
                     // MİGRATİON UYGULA (DB yoksa oluşturur, tablolar yoksa ekler, şema değişti ise günceller)
                     // MEVCUT VERİLER KORUNUR! ✅
+                    // Tüm pending migration'lar (RemoveMilyemAndRawMilyemFromStocks dahil) otomatik uygulanır
                     await context.Database.MigrateAsync();
                     
                     logger.LogInformation("  ✅ Migration'lar başarıyla uygulandı");

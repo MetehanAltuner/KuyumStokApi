@@ -31,10 +31,6 @@ public partial class Stocks
 
     public decimal? Carat { get; set; }
 
-    public int? Milyem { get; set; }
-
-    public int? RawMilyem { get; set; }
-
     public int? WorkmanshipMilyem { get; set; }
 
     public string? Color { get; set; }

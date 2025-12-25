@@ -11,6 +11,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Security.Cryptography;
 using System.Text.Json;
+using QRCoder;
 
 namespace KuyumStokApi.Infrastructure.Services.StocksService
 {
@@ -136,34 +137,44 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                 .ToListAsync(ct);
 
             // DTO'ya dönüştür
-            var items = groupedItems.Select(x => new StockDto
+            var items = groupedItems.Select(x =>
             {
-                Id = 0, // Gruplama yapıldığı için ID anlamsız, UI'da kullanılmıyor
-                Quantity = x.TotalQuantity,
-                Barcode = string.Empty, // Gruplama yapıldığı için tek bir barkod yok
-                QrCode = null,  // Gruplama yapıldığı için QR kod yok
-                CreatedAt = x.FirstCreatedAt != DateTime.MinValue ? x.FirstCreatedAt : null,
-                UpdatedAt = x.LastUpdatedAt != DateTime.MinValue ? x.LastUpdatedAt : null,
-                TotalWeight = x.TotalWeight,
+                // Ham milyem hesaplama (varyanttan gelen ayar bilgisine göre)
+                var hamMilyem = AyarMilyemHelper.GetMilyemFromAyar(x.VariantAyar);
+                
+                // Gruplama yapıldığı için WorkmanshipMilyem bilgisi yok, sadece ham milyemi gösteriyoruz
+                // Detay sayfasında (GetById) WorkmanshipMilyem + ham milyem toplamı gösterilir
+                return new StockDto
+                {
+                    Id = 0, // Gruplama yapıldığı için ID anlamsız, UI'da kullanılmıyor
+                    Quantity = x.TotalQuantity,
+                    Barcode = string.Empty, // Gruplama yapıldığı için tek bir barkod yok
+                    QrCode = null,  // Gruplama yapıldığı için QR kod yok
+                    CreatedAt = x.FirstCreatedAt != DateTime.MinValue ? x.FirstCreatedAt : null,
+                    UpdatedAt = x.LastUpdatedAt != DateTime.MinValue ? x.LastUpdatedAt : null,
+                    TotalWeight = x.TotalWeight,
+                    WorkmanshipMilyem = null, // Gruplama yapıldığı için WorkmanshipMilyem bilgisi yok
+                    TotalMilyem = hamMilyem, // Sadece ham milyem (gruplama yapıldığı için)
 
-                Branch = new StockDto.BranchBrief
-                {
-                    Id = x.BranchId,
-                    Name = x.BranchName
-                },
-                ProductVariant = new StockDto.VariantBrief
-                {
-                    Id = x.ProductVariantId,
-                    Name = x.VariantName,
-                    Ayar = x.VariantAyar,
-                    Color = x.VariantColor,
-                    Brand = x.VariantBrand,
-                    // Gruplama yapıldığı için tek bir Gram değeri yok, null bırakıyoruz
-                    Gram = null,
-                    ProductTypeId = x.TypeId,
-                    ProductTypeName = x.TypeName,
-                    CategoryName = x.CategoryName
-                }
+                    Branch = new StockDto.BranchBrief
+                    {
+                        Id = x.BranchId,
+                        Name = x.BranchName
+                    },
+                    ProductVariant = new StockDto.VariantBrief
+                    {
+                        Id = x.ProductVariantId,
+                        Name = x.VariantName,
+                        Ayar = x.VariantAyar,
+                        Color = x.VariantColor,
+                        Brand = x.VariantBrand,
+                        // Gruplama yapıldığı için tek bir Gram değeri yok, null bırakıyoruz
+                        Gram = null,
+                        ProductTypeId = x.TypeId,
+                        ProductTypeName = x.TypeName,
+                        CategoryName = x.CategoryName
+                    }
+                };
             }).ToList();
 
             return ApiResult<PagedResult<StockDto>>.Ok(
@@ -294,8 +305,6 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                     s.Width == dto.Width &&
                     s.StoneType == dto.StoneType &&
                     s.Carat == dto.Carat &&
-                    s.Milyem == dto.Milyem &&
-                    s.RawMilyem == dto.RawMilyem &&
                     s.WorkmanshipMilyem == dto.WorkmanshipMilyem &&
                     s.Color == dto.Color
                 , ct);
@@ -365,8 +374,6 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                     Width = dto.Width,
                     StoneType = dto.StoneType,
                     Carat = dto.Carat,
-                    Milyem = dto.Milyem,
-                    RawMilyem = dto.RawMilyem,
                     WorkmanshipMilyem = dto.WorkmanshipMilyem,
                     Color = dto.Color,
                     CreatedAt = now,
@@ -483,8 +490,6 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             if (dto.Width.HasValue) entity.Width = dto.Width;
             if (dto.StoneType != null) entity.StoneType = dto.StoneType;
             if (dto.Carat.HasValue) entity.Carat = dto.Carat;
-            if (dto.Milyem.HasValue) entity.Milyem = dto.Milyem;
-            if (dto.RawMilyem.HasValue) entity.RawMilyem = dto.RawMilyem;
             if (dto.WorkmanshipMilyem.HasValue) entity.WorkmanshipMilyem = dto.WorkmanshipMilyem;
             if (dto.Color != null) entity.Color = dto.Color;
             
@@ -596,8 +601,6 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                 entity.Width,
                 entity.StoneType,
                 entity.Carat,
-                entity.Milyem,
-                entity.RawMilyem,
                 entity.WorkmanshipMilyem,
                 entity.Color,
                 entity.CreatedAt,
@@ -605,7 +608,15 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             };
 
             var json = JsonSerializer.Serialize(payload);
-            return Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
+            
+            // QR kod görseli oluştur
+            using var qrGenerator = new QRCodeGenerator();
+            var qrCodeData = qrGenerator.CreateQrCode(json, QRCodeGenerator.ECCLevel.Q);
+            using var qrCode = new PngByteQRCode(qrCodeData);
+            var qrCodeBytes = qrCode.GetGraphic(20);
+            
+            // Base64 string olarak döndür
+            return Convert.ToBase64String(qrCodeBytes);
         }
 
         // ---- helpers ----
@@ -617,6 +628,16 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             var c = t?.CategoryId == null ? null :
                     await _db.ProductCategories.AsNoTracking().FirstOrDefaultAsync(x => x.Id == t.CategoryId, ct);
 
+            // Ham milyem hesaplama (varyanttan gelen ayar bilgisine göre)
+            var hamMilyem = AyarMilyemHelper.GetMilyemFromAyar(v?.Ayar);
+            
+            // Toplam milyem = Ham milyem + İşçilik milyemi
+            int? totalMilyem = null;
+            if (hamMilyem.HasValue || s.WorkmanshipMilyem.HasValue)
+            {
+                totalMilyem = (hamMilyem ?? 0) + (s.WorkmanshipMilyem ?? 0);
+            }
+
             var dto = new StockDto
             {
                 Id = s.Id,
@@ -626,9 +647,8 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                 CreatedAt = s.CreatedAt,
                 UpdatedAt = s.UpdatedAt,
                 TotalWeight = (s.Gram ?? 0) * (decimal)(s.Quantity ?? 0),
-                Milyem = s.Milyem,
-                RawMilyem = s.RawMilyem,
                 WorkmanshipMilyem = s.WorkmanshipMilyem,
+                TotalMilyem = totalMilyem,
                 Branch = new StockDto.BranchBrief
                 {
                     Id = s.BranchId,

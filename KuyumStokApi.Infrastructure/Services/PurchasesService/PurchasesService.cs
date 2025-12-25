@@ -51,7 +51,6 @@ namespace KuyumStokApi.Infrastructure.Services.PurchasesService
                         BranchId = i.BranchId,
                         Barcode = i.Barcode,
                         Quantity = 0,
-                        RawMilyem = i.RawMilyem,
                         WorkmanshipMilyem = i.WorkmanshipMilyem,
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow

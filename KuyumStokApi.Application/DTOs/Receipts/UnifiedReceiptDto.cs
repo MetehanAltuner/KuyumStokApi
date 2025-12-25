@@ -44,8 +44,6 @@ namespace KuyumStokApi.Application.DTOs.Receipts
         public decimal? Width { get; set; }
         public string? StoneType { get; set; }
         public decimal? Carat { get; set; }
-        public int? Milyem { get; set; }
-        public int? RawMilyem { get; set; }
         public int? WorkmanshipMilyem { get; set; }
         public string? Color { get; set; }
         public string? QrCode { get; set; }
