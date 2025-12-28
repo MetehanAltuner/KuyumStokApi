@@ -7,7 +7,7 @@ public partial class ProductLifecycles
 {
     public int Id { get; set; }
 
-    public int? StockId { get; set; }
+    public Guid? StockId { get; set; }
 
     public int? UserId { get; set; }
 

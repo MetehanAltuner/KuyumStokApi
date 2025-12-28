@@ -29,10 +29,10 @@ namespace KuyumStokApi.API.Controllers
             return StatusCode(r.StatusCode, r);
         }
 
-        /// <summary>Id’ye göre stok detayını getirir.</summary>
-        [HttpGet("{id:int}")]
+        /// <summary>Id'ye göre stok detayını getirir.</summary>
+        [HttpGet("{id:guid}")]
         [Authorize]
-        public async Task<IActionResult> GetById(int id, CancellationToken ct)
+        public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
         {
             var r = await _svc.GetByIdAsync(id, ct);
             return StatusCode(r.StatusCode, r);
@@ -57,27 +57,27 @@ namespace KuyumStokApi.API.Controllers
         }
 
         /// <summary>Stok kaydını günceller.</summary>
-        [HttpPut("{id:int}")]
+        [HttpPut("{id:guid}")]
         [Authorize]
-        public async Task<IActionResult> Update(int id, [FromBody] StockUpdateDto dto, CancellationToken ct)
+        public async Task<IActionResult> Update(Guid id, [FromBody] StockUpdateDto dto, CancellationToken ct)
         {
             var r = await _svc.UpdateAsync(id, dto, ct);
             return StatusCode(r.StatusCode, r);
         }
 
         /// <summary>Stok kaydını siler (bağlı kayıt varsa 409).</summary>
-        [HttpDelete("{id:int}")]
+        [HttpDelete("{id:guid}")]
         [Authorize]
-        public async Task<IActionResult> Delete(int id, CancellationToken ct)
+        public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
         {
             var r = await _svc.DeleteAsync(id, ct);
             return StatusCode(r.StatusCode, r);
         }
 
         /// <summary>Stok kaydını kalıcı siler (bağlı kayıt yoksa).</summary>
-        [HttpDelete("{id:int}/hard")]
+        [HttpDelete("{id:guid}/hard")]
         [Authorize]
-        public async Task<IActionResult> HardDelete(int id, CancellationToken ct)
+        public async Task<IActionResult> HardDelete(Guid id, CancellationToken ct)
         {
             var r = await _svc.HardDeleteAsync(id, ct);
             return StatusCode(r.StatusCode, r);

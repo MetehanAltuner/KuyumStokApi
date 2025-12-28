@@ -19,7 +19,7 @@ namespace KuyumStokApi.Application.DTOs.Receipts
     public sealed class UnifiedReceiptSaleItem
     {
         /// <summary>Satılacak stok kimliği.</summary>
-        public int StockId { get; set; }
+        public Guid StockId { get; set; }
 
         /// <summary>Satılacak adet (>=1).</summary>
         public int Quantity { get; set; } = 1;
@@ -91,7 +91,7 @@ namespace KuyumStokApi.Application.DTOs.Receipts
         public int? SaleId { get; set; }
         public int? PurchaseId { get; set; }
         public DateTime? CreatedAt { get; set; }
-        public IReadOnlyList<int> AffectedStockIds { get; set; } = Array.Empty<int>();
+        public IReadOnlyList<Guid> AffectedStockIds { get; set; } = Array.Empty<Guid>();
     }
 }
 

@@ -28,7 +28,7 @@ namespace KuyumStokApi.Infrastructure.Services.ProductLifecycleService
 
             var q = _db.ProductLifecycles.AsNoTracking().AsQueryable();
 
-            if (f.StockId.HasValue) q = q.Where(x => x.StockId == f.StockId);
+            if (f.StockId.HasValue) q = q.Where(x => x.StockId.HasValue && x.StockId.Value == f.StockId.Value);
             if (f.ActionId.HasValue) q = q.Where(x => x.ActionId == f.ActionId);
             if (f.UserId.HasValue) q = q.Where(x => x.UserId == f.UserId);
             if (f.FromUtc.HasValue) q = q.Where(x => x.Timestamp == null || x.Timestamp >= f.FromUtc);
@@ -44,7 +44,7 @@ namespace KuyumStokApi.Infrastructure.Services.ProductLifecycleService
                 {
                     Id = x.Id,
                     StockId = x.StockId,
-                    UserId = x.UserId ?? 0,
+                    UserId = x.UserId,
                     ActionId = x.ActionId ?? 0,
                     Note = x.Notes,
                     Timestamp = x.Timestamp,
@@ -76,7 +76,7 @@ namespace KuyumStokApi.Infrastructure.Services.ProductLifecycleService
                 {
                     Id = p.Id,
                     StockId = p.StockId,
-                    UserId = p.UserId ?? 0,
+                    UserId = p.UserId,
                     ActionId = p.ActionId ?? 0,
                     Note = p.Notes,
                     Timestamp = p.Timestamp,
@@ -110,7 +110,7 @@ namespace KuyumStokApi.Infrastructure.Services.ProductLifecycleService
             var e = new KuyumStokApi.Domain.Entities.ProductLifecycles
             {
                 StockId = dto.StockId,
-                UserId = _cu.UserId,        // oturumdaki kullanıcı
+                UserId = _cu.UserId,        // oturumdaki kullanıcı (int?)
                 ActionId = dto.ActionId,
                 Notes = dto.Note,
                 Timestamp = dto.Timestamp ?? now,
@@ -124,7 +124,7 @@ namespace KuyumStokApi.Infrastructure.Services.ProductLifecycleService
             {
                 Id = e.Id,
                 StockId = e.StockId,
-                UserId = e.UserId ?? 0,
+                UserId = e.UserId,
                 ActionId = e.ActionId ?? 0,
                 Note = e.Notes,
                 Timestamp = e.Timestamp,

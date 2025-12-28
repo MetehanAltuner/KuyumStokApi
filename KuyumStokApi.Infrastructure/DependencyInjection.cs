@@ -32,6 +32,7 @@ using KuyumStokApi.Infrastructure.Services.AnomalyDetectionService;
 using KuyumStokApi.Infrastructure.Services.WorkloadEstimationService;
 using KuyumStokApi.Application.Hubs;
 using Microsoft.AspNetCore.SignalR;
+using KuyumStokApi.Infrastructure.QrCode;
 
 namespace KuyumStokApi.Infrastructure
 {
@@ -48,6 +49,12 @@ namespace KuyumStokApi.Infrastructure
             services.AddOptions<PasswordOptions>()
                     .Bind(configuration.GetSection("Password"))
                     .ValidateDataAnnotations()
+                    .ValidateOnStart();
+
+            services.AddOptions<QrCodeOptions>()
+                    .Bind(configuration.GetSection("QrCode"))
+                    .ValidateDataAnnotations()
+                    .Validate(o => !string.IsNullOrWhiteSpace(o.BaseUrl), "QrCode BaseUrl boş olamaz.")
                     .ValidateOnStart();
 
 

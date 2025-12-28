@@ -15,7 +15,7 @@ public partial class SaleDetails
 
     public DateTime? UpdatedAt { get; set; }
 
-    public int? StockId { get; set; }
+    public Guid? StockId { get; set; }
 
     public virtual Sales? Sale { get; set; }
 

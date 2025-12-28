@@ -22,15 +22,6 @@ namespace KuyumStokApi.Application.DTOs.Stocks
             public string BranchName { get; set; } = default!;
             public int ToplamAdet { get; set; }
             public decimal ToplamAgirlik { get; set; }
-            public List<StockChip> Items { get; set; } = new();
-        }
-
-        public sealed class StockChip
-        {
-            public int StockId { get; set; }
-            public string Barcode { get; set; } = default!;
-            public decimal Gram { get; set; }
-            public string? Color { get; set; }
         }
     }
 }

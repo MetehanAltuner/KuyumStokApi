@@ -35,7 +35,7 @@ namespace KuyumStokApi.Infrastructure.Services.PurchasesService
             _db.Purchases.Add(purchase);
             await _db.SaveChangesAsync(ct);
 
-            var createdStockIds = new List<int>();
+            var createdStockIds = new List<Guid>();
 
             foreach (var i in dto.Items)
             {

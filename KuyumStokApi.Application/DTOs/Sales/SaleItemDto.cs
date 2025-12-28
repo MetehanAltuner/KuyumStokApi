@@ -9,7 +9,7 @@ namespace KuyumStokApi.Application.DTOs.Sales
     /// <summary>Satış kalemi (stok çıkış) DTO’su.</summary>
     public sealed class SaleItemDto
     {
-        public int StockId { get; set; }         // hangi stok satılıyor
+        public Guid StockId { get; set; }         // hangi stok satılıyor
         public int Quantity { get; set; }        // -adet
         public decimal SoldPrice { get; set; }   // detay tablosu için
     }
@@ -53,7 +53,7 @@ namespace KuyumStokApi.Application.DTOs.Sales
     {
         public int Id { get; set; }
         public DateTime? CreatedAt { get; set; }
-        public IReadOnlyList<int> StockIds { get; set; } = Array.Empty<int>();
+        public IReadOnlyList<Guid> StockIds { get; set; } = Array.Empty<Guid>();
     }
     public sealed class SaleFilter
     {
@@ -78,7 +78,7 @@ namespace KuyumStokApi.Application.DTOs.Sales
         public string? BranchName { get; init; }
         public int? UserId { get; init; }
         public string? UserName { get; init; }
-        public int StockId { get; init; }
+        public Guid StockId { get; init; }
         public string? ProductName { get; init; } // pv.Name
         public string? Ayar { get; init; }        // pv.Ayar
         public string? Renk { get; init; }        // pv.Color
@@ -94,7 +94,7 @@ namespace KuyumStokApi.Application.DTOs.Sales
         public DateTime? CreatedAt { get; init; } // s.CreatedAt (UI’da tarih istersen)
         public string? PaymentMethod { get; init; }
 
-        public int StockId { get; init; }
+        public Guid StockId { get; init; }
         public string? ProductName { get; init; } // pv.Name
         public string? Ayar { get; init; }        // pv.Ayar
         public string? Renk { get; init; }        // pv.Color

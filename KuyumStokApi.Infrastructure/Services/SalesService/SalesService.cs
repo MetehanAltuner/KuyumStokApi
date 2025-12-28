@@ -75,7 +75,7 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
             using var tx = await _db.Database.BeginTransactionAsync(ct);
             int? saleId = null;
             int? purchaseId = null;
-            var affectedStockIds = new List<int>();
+            var affectedStockIds = new List<Guid>();
 
             try
             {
@@ -161,7 +161,7 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                     BranchName = x.b != null ? x.b.Name : null,
                     UserId = x.s.UserId,
                     UserName = x.u != null ? x.u.Username : null,
-                    StockId = x.st.Id,
+                    StockId = x.st.Id, // Guid
                     ProductName = x.pv != null ? x.pv.Name : null,
                     Ayar = x.pv != null ? x.pv.Ayar : null,
                     Renk = x.pv != null ? x.pv.Color : null,
@@ -265,7 +265,7 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
             return existing.Id;
         }
 
-        private async Task<(int SaleId, List<int> AffectedStockIds)> ProcessSaleAsync(
+        private async Task<(int SaleId, List<Guid> AffectedStockIds)> ProcessSaleAsync(
             UnifiedReceiptCreateDto dto,
             int userId,
             int branchId,
@@ -291,11 +291,11 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
             _db.Sales.Add(sale);
             await _db.SaveChangesAsync(ct);
 
-            var affectedStockIds = new List<int>();
+            var affectedStockIds = new List<Guid>();
 
             foreach (var item in dto.SaleItems!)
             {
-                if (item.StockId <= 0)
+                if (item.StockId == Guid.Empty)
                     throw new InvalidOperationException("Geçersiz StockId.");
                 if (item.Quantity <= 0)
                     throw new InvalidOperationException($"Geçersiz adet: {item.Quantity}");
@@ -343,7 +343,7 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
             return (sale.Id, affectedStockIds);
         }
 
-        private async Task<(int PurchaseId, List<int> AffectedStockIds)> ProcessPurchaseAsync(
+        private async Task<(int PurchaseId, List<Guid> AffectedStockIds)> ProcessPurchaseAsync(
             UnifiedReceiptCreateDto dto,
             int userId,
             int branchId,
@@ -369,7 +369,7 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
             _db.Purchases.Add(purchase);
             await _db.SaveChangesAsync(ct);
 
-            var affectedStockIds = new List<int>();
+            var affectedStockIds = new List<Guid>();
 
             foreach (var item in dto.PurchaseItems!)
             {

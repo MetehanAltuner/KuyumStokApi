@@ -32,7 +32,7 @@ namespace KuyumStokApi.Application.DTOs.Purchase
     {
         public int Id { get; set; }
         public DateTime? CreatedAt { get; set; }
-        public IReadOnlyList<int> StockIds { get; set; } = Array.Empty<int>();
+        public IReadOnlyList<Guid> StockIds { get; set; } = Array.Empty<Guid>();
     }
     public sealed class PurchaseFilter
     {
@@ -67,7 +67,7 @@ namespace KuyumStokApi.Application.DTOs.Purchase
     public sealed class PurchaseDetailLineDto
     {
         public int Id { get; init; }
-        public int StockId { get; init; }
+        public Guid StockId { get; init; }
         public string? Barcode { get; init; }
         public int Quantity { get; init; }
         public decimal? PurchasePrice { get; init; }

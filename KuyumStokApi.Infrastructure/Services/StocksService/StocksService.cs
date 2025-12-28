@@ -12,6 +12,8 @@ using System.Threading.Tasks;
 using System.Security.Cryptography;
 using System.Text.Json;
 using QRCoder;
+using Microsoft.Extensions.Options;
+using KuyumStokApi.Infrastructure.QrCode;
 
 namespace KuyumStokApi.Infrastructure.Services.StocksService
 {
@@ -20,11 +22,13 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
     {
         private readonly AppDbContext _db;
         private readonly ICurrentUserContext _user;
+        private readonly QrCodeOptions _qrOptions;
 
-        public StocksService(AppDbContext db, ICurrentUserContext user)
+        public StocksService(AppDbContext db, ICurrentUserContext user, IOptions<QrCodeOptions> qrOptions)
         {
             _db = db;
             _user = user;
+            _qrOptions = qrOptions.Value;
         }
 
         // -------- LİSTE: Aynı varyanta sahip stokları gruplayarak toplam adet ve ağırlık ile gösterir --------
@@ -136,20 +140,66 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                 .Take(pageSize)
                 .ToListAsync(ct);
 
+            // QR kodları almak için: Tüm gruplar için QR kod olan ilk stok kayıtlarını bul
+            var qrCodeMap = new Dictionary<string, string>();
+            
+            if (groupedItems.Any())
+            {
+                // Grup anahtarlarını hazırla
+                var variantIds = groupedItems.Select(g => g.ProductVariantId).Where(id => id.HasValue).Cast<int>().Distinct().ToList();
+                var branchIds = groupedItems.Select(g => g.BranchId).Where(id => id.HasValue).Cast<int>().Distinct().ToList();
+                
+                if (variantIds.Any() && branchIds.Any())
+                {
+                    // Tüm gruplar için QR kod olan stokları çek
+                    var stocksWithQr = await _db.Stocks.AsNoTracking()
+                        .Where(s => s.ProductVariantId.HasValue && s.BranchId.HasValue
+                                 && variantIds.Contains(s.ProductVariantId.Value) 
+                                 && branchIds.Contains(s.BranchId.Value)
+                                 && !string.IsNullOrWhiteSpace(s.QrCode))
+                        .Select(s => new { s.ProductVariantId, s.BranchId, s.QrCode, s.CreatedAt })
+                        .ToListAsync(ct);
+                    
+                    // Her grup için ilk QR kod olan stok kaydını seç (memory'de)
+                    foreach (var group in groupedItems)
+                    {
+                        var qrCode = stocksWithQr
+                            .Where(s => s.ProductVariantId == group.ProductVariantId && s.BranchId == group.BranchId)
+                            .OrderBy(s => s.CreatedAt ?? DateTime.MaxValue)
+                            .Select(s => s.QrCode)
+                            .FirstOrDefault();
+                        
+                        if (!string.IsNullOrWhiteSpace(qrCode))
+                        {
+                            var key = $"{group.ProductVariantId}_{group.BranchId}";
+                            qrCodeMap[key] = qrCode;
+                        }
+                    }
+                }
+            }
+
             // DTO'ya dönüştür
             var items = groupedItems.Select(x =>
             {
                 // Ham milyem hesaplama (varyanttan gelen ayar bilgisine göre)
                 var hamMilyem = AyarMilyemHelper.GetMilyemFromAyar(x.VariantAyar);
                 
+                // QR kod varsa, bu grup için QR kod olan ilk stok kaydının QR kodunu al
+                string? qrCode = null;
+                var groupKey = $"{x.ProductVariantId}_{x.BranchId}";
+                if (qrCodeMap.TryGetValue(groupKey, out var qr))
+                {
+                    qrCode = qr;
+                }
+                
                 // Gruplama yapıldığı için WorkmanshipMilyem bilgisi yok, sadece ham milyemi gösteriyoruz
                 // Detay sayfasında (GetById) WorkmanshipMilyem + ham milyem toplamı gösterilir
                 return new StockDto
                 {
-                    Id = 0, // Gruplama yapıldığı için ID anlamsız, UI'da kullanılmıyor
+                    Id = Guid.Empty, // Gruplama yapıldığı için ID anlamsız, UI'da kullanılmıyor
                     Quantity = x.TotalQuantity,
                     Barcode = string.Empty, // Gruplama yapıldığı için tek bir barkod yok
-                    QrCode = null,  // Gruplama yapıldığı için QR kod yok
+                    QrCode = qrCode,  // Varsa grup içindeki ilk QR kod
                     CreatedAt = x.FirstCreatedAt != DateTime.MinValue ? x.FirstCreatedAt : null,
                     UpdatedAt = x.LastUpdatedAt != DateTime.MinValue ? x.LastUpdatedAt : null,
                     TotalWeight = x.TotalWeight,
@@ -216,14 +266,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                     BranchId = g.Key.Id,
                     BranchName = g.Key.Name,
                     ToplamAdet = g.Sum(z => z.s.Quantity ?? 0),
-                    ToplamAgirlik = g.Sum(z => (z.s.Gram ?? 0) * (decimal)(z.s.Quantity ?? 0)),
-                    Items = g.Select(z => new StockVariantDetailByStoreDto.StockChip
-                    {
-                        StockId = z.s.Id,
-                        Barcode = z.s.Barcode,
-                        Gram = z.s.Gram ?? 0,
-                        Color = v.Color
-                    })
+                    ToplamAgirlik = g.Sum(z => (z.s.Gram ?? 0) * (decimal)(z.s.Quantity ?? 0))
                 };
 
             var dto = new StockVariantDetailByStoreDto
@@ -239,8 +282,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                         BranchId = x.BranchId,
                         BranchName = x.BranchName ?? "",
                         ToplamAdet = x.ToplamAdet,
-                        ToplamAgirlik = x.ToplamAgirlik,
-                        Items = x.Items.ToList()
+                        ToplamAgirlik = x.ToplamAgirlik
                     })
                     .ToListAsync(ct)
             };
@@ -249,7 +291,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
         }
 
         // ------------ CRUD (sende zaten var; aynen koruyorum) ------------
-        public async Task<ApiResult<StockDto>> GetByIdAsync(int id, CancellationToken ct = default)
+        public async Task<ApiResult<StockDto>> GetByIdAsync(Guid id, CancellationToken ct = default)
         {
             var s = await _db.Stocks.AsNoTracking()
                 .FirstOrDefaultAsync(x => x.Id == id, ct);
@@ -292,7 +334,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                 ? await _db.Database.BeginTransactionAsync(ct)
                 : null;
 
-            int stockId;
+            Guid stockId;
             
             try
             {
@@ -416,7 +458,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             }
         }
 
-        private async Task CreatePurchaseRecordAsync(int stockId, int branchId, int quantity, decimal purchasePrice, CancellationToken ct)
+        private async Task CreatePurchaseRecordAsync(Guid stockId, int branchId, int quantity, decimal purchasePrice, CancellationToken ct)
         {
             var userId = _user.UserId;
             if (!userId.HasValue)
@@ -464,7 +506,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             await _db.SaveChangesAsync(ct);
         }
 
-        public async Task<ApiResult<bool>> UpdateAsync(int id, StockUpdateDto dto, CancellationToken ct = default)
+        public async Task<ApiResult<bool>> UpdateAsync(Guid id, StockUpdateDto dto, CancellationToken ct = default)
         {
             var entity = await _db.Stocks.FirstOrDefaultAsync(x => x.Id == id, ct);
             if (entity is null)
@@ -499,7 +541,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             return ApiResult<bool>.Ok(true, "Güncellendi", 200);
         }
 
-        public async Task<ApiResult<bool>> DeleteAsync(int id, CancellationToken ct = default)
+        public async Task<ApiResult<bool>> DeleteAsync(Guid id, CancellationToken ct = default)
         {
             var entity = await _db.Stocks.FirstOrDefaultAsync(x => x.Id == id, ct);
             if (entity is null)
@@ -517,7 +559,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             return ApiResult<bool>.Ok(true, "Silindi", 200);
         }
 
-        public async Task<ApiResult<bool>> HardDeleteAsync(int id, CancellationToken ct = default)
+        public async Task<ApiResult<bool>> HardDeleteAsync(Guid id, CancellationToken ct = default)
         {
             var usedInSale = await _db.SaleDetails.AnyAsync(d => d.StockId == id, ct);
             var usedInPurchase = await _db.PurchaseDetails.AnyAsync(d => d.StockId == id, ct);
@@ -587,31 +629,14 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             return barcode;
         }
 
-        private static string BuildQrPayload(Domain.Entities.Stocks entity)
+        private string BuildQrPayload(Domain.Entities.Stocks entity)
         {
-            var payload = new
-            {
-                entity.Id,
-                entity.ProductVariantId,
-                entity.BranchId,
-                Quantity = 1,
-                entity.Barcode,
-                entity.Gram,
-                entity.Thickness,
-                entity.Width,
-                entity.StoneType,
-                entity.Carat,
-                entity.WorkmanshipMilyem,
-                entity.Color,
-                entity.CreatedAt,
-                entity.UpdatedAt
-            };
-
-            var json = JsonSerializer.Serialize(payload);
+            // QR kod içinde sadece URL olacak: {BaseUrl}{StockId}
+            var qrUrl = $"{_qrOptions.BaseUrl.TrimEnd('/')}/{entity.Id}";
             
             // QR kod görseli oluştur
             using var qrGenerator = new QRCodeGenerator();
-            var qrCodeData = qrGenerator.CreateQrCode(json, QRCodeGenerator.ECCLevel.Q);
+            var qrCodeData = qrGenerator.CreateQrCode(qrUrl, QRCodeGenerator.ECCLevel.Q);
             using var qrCode = new PngByteQRCode(qrCodeData);
             var qrCodeBytes = qrCode.GetGraphic(20);
             

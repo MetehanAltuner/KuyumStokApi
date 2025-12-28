@@ -5,7 +5,7 @@ namespace KuyumStokApi.Application.DTOs.Stocks
     /// <summary>Stok kaydı DTO (liste satırı).</summary>
     public sealed class StockDto
     {
-        public int Id { get; set; }
+        public Guid Id { get; set; }
 
         public VariantBrief? ProductVariant { get; set; }
         public BranchBrief? Branch { get; set; }

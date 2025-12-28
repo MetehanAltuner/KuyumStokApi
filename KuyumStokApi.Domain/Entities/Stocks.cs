@@ -5,7 +5,7 @@ namespace KuyumStokApi.Domain.Entities;
 
 public partial class Stocks
 {
-    public int Id { get; set; }
+    public Guid Id { get; set; }
 
     public int? ProductVariantId { get; set; }
 

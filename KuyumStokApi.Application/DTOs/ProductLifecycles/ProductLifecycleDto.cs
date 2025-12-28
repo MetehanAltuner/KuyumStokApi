@@ -9,7 +9,7 @@ namespace KuyumStokApi.Application.DTOs.ProductLifecycles
     public sealed class ProductLifecycleDto
     {
         public int Id { get; set; }
-        public int? StockId { get; set; }
+        public Guid? StockId { get; set; }
         public int? UserId { get; set; }
         public int? ActionId { get; set; }
         public string? Note { get; set; }
@@ -26,7 +26,7 @@ namespace KuyumStokApi.Application.DTOs.ProductLifecycles
 
     public sealed class ProductLifecycleCreateDto
     {
-        public int StockId { get; set; }
+        public Guid StockId { get; set; }
         public int ActionId { get; set; }
         public string? Note { get; set; }
         // user_id'i servis CurrentUserService ile dolduracağız
@@ -38,7 +38,7 @@ namespace KuyumStokApi.Application.DTOs.ProductLifecycles
         public int Page { get; set; } = 1;
         public int PageSize { get; set; } = 20;
 
-        public int? StockId { get; set; }
+        public Guid? StockId { get; set; }
         public int? ActionId { get; set; }
         public int? UserId { get; set; }
         public DateTime? FromUtc { get; set; }
