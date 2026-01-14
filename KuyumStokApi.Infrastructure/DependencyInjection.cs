@@ -85,6 +85,9 @@ namespace KuyumStokApi.Infrastructure
             services.AddScoped<AnomalyDetectionService>();
             services.AddScoped<WorkloadEstimationService>();
             
+            // DashboardNotificationService'i kaydet
+            services.AddScoped<IDashboardNotificationService, DashboardNotificationService>();
+            
             // DashboardService için IHubContext<DashboardHub> inject et
             services.AddScoped<IDashboardService>(sp =>
             {
