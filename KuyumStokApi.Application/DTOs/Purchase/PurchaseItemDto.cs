@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -14,6 +14,7 @@ namespace KuyumStokApi.Application.DTOs.Purchase
         public string Barcode { get; set; } = default!; // stocks.barcode UNIQUE
         public int Quantity { get; set; }               // +adet
         public decimal PurchasePrice { get; set; }      // detay tablosu için
+        public decimal TotalWeightGram { get; set; }    // satır toplam ağırlık
         public int? WorkmanshipMilyem { get; set; }
     }
 
@@ -71,6 +72,7 @@ namespace KuyumStokApi.Application.DTOs.Purchase
         public string? Barcode { get; init; }
         public int Quantity { get; init; }
         public decimal? PurchasePrice { get; init; }
+        public decimal TotalWeightGram { get; init; }
 
         // vitrin için okunur isim (varsa)
         public int? ProductVariantId { get; init; }

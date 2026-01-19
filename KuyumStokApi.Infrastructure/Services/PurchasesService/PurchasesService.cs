@@ -1,4 +1,4 @@
-﻿using KuyumStokApi.Application.Common;
+using KuyumStokApi.Application.Common;
 using KuyumStokApi.Application.DTOs.Purchase;
 using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Domain.Entities;
@@ -39,6 +39,9 @@ namespace KuyumStokApi.Infrastructure.Services.PurchasesService
 
             foreach (var i in dto.Items)
             {
+                if (i.TotalWeightGram <= 0)
+                    return ApiResult<PurchaseResultDto>.Fail("TotalWeightGram 0'dan büyük olmalıdır.", statusCode: 400);
+
                 // barcode UNIQUE: varsa aynı branch/variant’ta birleştir; yoksa oluştur
                 var stock = await _db.Stocks
                     .FirstOrDefaultAsync(s => s.Barcode == i.Barcode, ct);
@@ -51,6 +54,7 @@ namespace KuyumStokApi.Infrastructure.Services.PurchasesService
                         BranchId = i.BranchId,
                         Barcode = i.Barcode,
                         Quantity = 0,
+                        TotalWeightGram = 0,
                         WorkmanshipMilyem = i.WorkmanshipMilyem,
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
@@ -66,6 +70,7 @@ namespace KuyumStokApi.Infrastructure.Services.PurchasesService
                 }
 
                 stock.Quantity = (stock.Quantity ?? 0) + i.Quantity;
+                stock.TotalWeightGram += i.TotalWeightGram;
                 stock.UpdatedAt = DateTime.UtcNow;
 
                 _db.PurchaseDetails.Add(new PurchaseDetails
@@ -73,6 +78,7 @@ namespace KuyumStokApi.Infrastructure.Services.PurchasesService
                     PurchaseId = purchase.Id,
                     Quantity = i.Quantity,
                     PurchasePrice = i.PurchasePrice,
+                    TotalWeightGram = i.TotalWeightGram,
                     StockId = stock.Id
                 });
 
@@ -198,6 +204,7 @@ namespace KuyumStokApi.Infrastructure.Services.PurchasesService
                            Barcode = s.Barcode,
                            Quantity = d.Quantity ?? 0,
                            PurchasePrice = d.PurchasePrice,
+                           TotalWeightGram = d.TotalWeightGram,
                            ProductVariantId = s.ProductVariantId,
                            VariantDisplay =
                                pv == null ? null :
