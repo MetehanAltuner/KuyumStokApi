@@ -1,4 +1,4 @@
-﻿using KuyumStokApi.Application.Common;
+using KuyumStokApi.Application.Common;
 using KuyumStokApi.Application.DTOs.Stocks;
 using KuyumStokApi.Application.Interfaces.Auth;
 using KuyumStokApi.Application.Interfaces.Services;
@@ -89,123 +89,55 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             if (filter.UpdatedToUtc is not null)
                 baseQ = baseQ.Where(x => x.s.UpdatedAt == null || x.s.UpdatedAt <= filter.UpdatedToUtc);
 
-            // ProductVariantId ve BranchId'ye göre grupla
-            // Not: Aynı ProductVariantId + BranchId'ye sahip tüm stokları topluyoruz
-            // Variant bilgilerini key'e ekliyoruz (aynı ProductVariantId için aynı olduğundan gruplamayı bozmaz)
-            // Bu sayede EF Core'un çevirebileceği bir sorgu elde ediyoruz
-            var grouped = 
-                from x in baseQ
-                group x by new { 
-                    ProductVariantId = x.s.ProductVariantId, 
-                    BranchId = x.s.BranchId,
+            var total = await baseQ.LongCountAsync(ct);
+
+            var rows = await baseQ
+                .OrderByDescending(x => x.s.UpdatedAt ?? x.s.CreatedAt)
+                .ThenBy(x => x.s.ProductVariantId)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(x => new
+                {
+                    StockId = x.s.Id,
+                    x.s.Quantity,
+                    x.s.Barcode,
+                    x.s.QrCode,
+                    x.s.CreatedAt,
+                    x.s.UpdatedAt,
+                    x.s.TotalWeightGram,
+                    x.s.WorkmanshipMilyem,
+                    VariantId = x.v != null ? x.v.Id : (int?)null,
                     VariantName = x.v != null ? x.v.Name : null,
                     VariantAyar = x.v != null ? x.v.Ayar : null,
                     VariantColor = x.v != null ? x.v.Color : null,
                     VariantBrand = x.v != null ? x.v.Brand : null,
+                    VariantGram = x.s.Gram,
                     TypeId = x.t != null ? x.t.Id : (int?)null,
                     TypeName = x.t != null ? x.t.Name : null,
                     CategoryName = x.c != null ? x.c.Name : null,
+                    BranchId = x.b != null ? x.b.Id : (int?)null,
                     BranchName = x.b != null ? x.b.Name : null
-                } into g
-                select new
-                {
-                    ProductVariantId = g.Key.ProductVariantId,
-                    BranchId = g.Key.BranchId,
-                    VariantName = g.Key.VariantName,
-                    VariantAyar = g.Key.VariantAyar,
-                    VariantColor = g.Key.VariantColor,
-                    VariantBrand = g.Key.VariantBrand,
-                    TypeId = g.Key.TypeId,
-                    TypeName = g.Key.TypeName,
-                    CategoryName = g.Key.CategoryName,
-                    BranchName = g.Key.BranchName,
-                    // Toplam adet
-                    TotalQuantity = g.Sum(z => z.s.Quantity ?? 0),
-                    // Toplam ağırlık (her stok için Gram * Quantity toplamı)
-                    TotalWeight = g.Sum(z => (z.s.Gram ?? 0) * (decimal)(z.s.Quantity ?? 0)),
-                    // En son güncellenme tarihi
-                    LastUpdatedAt = g.Max(z => z.s.UpdatedAt ?? z.s.CreatedAt ?? DateTime.MinValue),
-                    // İlk oluşturulma tarihi
-                    FirstCreatedAt = g.Min(z => z.s.CreatedAt ?? DateTime.MinValue)
-                };
-
-            // Toplam grup sayısını hesapla (sayfalama için)
-            var total = await grouped.LongCountAsync(ct);
-
-            // Sayfalama ve sıralama
-            var groupedItems = await grouped
-                .OrderByDescending(x => x.LastUpdatedAt)
-                .ThenBy(x => x.ProductVariantId)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
+                })
                 .ToListAsync(ct);
 
-            // QR kodları almak için: Tüm gruplar için QR kod olan ilk stok kayıtlarını bul
-            var qrCodeMap = new Dictionary<string, string>();
-            
-            if (groupedItems.Any())
+            var items = rows.Select(x =>
             {
-                // Grup anahtarlarını hazırla
-                var variantIds = groupedItems.Select(g => g.ProductVariantId).Where(id => id.HasValue).Cast<int>().Distinct().ToList();
-                var branchIds = groupedItems.Select(g => g.BranchId).Where(id => id.HasValue).Cast<int>().Distinct().ToList();
-                
-                if (variantIds.Any() && branchIds.Any())
-                {
-                    // Tüm gruplar için QR kod olan stokları çek
-                    var stocksWithQr = await _db.Stocks.AsNoTracking()
-                        .Where(s => s.ProductVariantId.HasValue && s.BranchId.HasValue
-                                 && variantIds.Contains(s.ProductVariantId.Value) 
-                                 && branchIds.Contains(s.BranchId.Value)
-                                 && !string.IsNullOrWhiteSpace(s.QrCode))
-                        .Select(s => new { s.ProductVariantId, s.BranchId, s.QrCode, s.CreatedAt })
-                        .ToListAsync(ct);
-                    
-                    // Her grup için ilk QR kod olan stok kaydını seç (memory'de)
-                    foreach (var group in groupedItems)
-                    {
-                        var qrCode = stocksWithQr
-                            .Where(s => s.ProductVariantId == group.ProductVariantId && s.BranchId == group.BranchId)
-                            .OrderBy(s => s.CreatedAt ?? DateTime.MaxValue)
-                            .Select(s => s.QrCode)
-                            .FirstOrDefault();
-                        
-                        if (!string.IsNullOrWhiteSpace(qrCode))
-                        {
-                            var key = $"{group.ProductVariantId}_{group.BranchId}";
-                            qrCodeMap[key] = qrCode;
-                        }
-                    }
-                }
-            }
-
-            // DTO'ya dönüştür
-            var items = groupedItems.Select(x =>
-            {
-                // Ham milyem hesaplama (varyanttan gelen ayar bilgisine göre)
                 var hamMilyem = AyarMilyemHelper.GetMilyemFromAyar(x.VariantAyar);
-                
-                // QR kod varsa, bu grup için QR kod olan ilk stok kaydının QR kodunu al
-                string? qrCode = null;
-                var groupKey = $"{x.ProductVariantId}_{x.BranchId}";
-                if (qrCodeMap.TryGetValue(groupKey, out var qr))
-                {
-                    qrCode = qr;
-                }
-                
-                // Gruplama yapıldığı için WorkmanshipMilyem bilgisi yok, sadece ham milyemi gösteriyoruz
-                // Detay sayfasında (GetById) WorkmanshipMilyem + ham milyem toplamı gösterilir
+                int? totalMilyem = null;
+                if (hamMilyem.HasValue || x.WorkmanshipMilyem.HasValue)
+                    totalMilyem = (hamMilyem ?? 0) + (x.WorkmanshipMilyem ?? 0);
+
                 return new StockDto
                 {
-                    Id = Guid.Empty, // Gruplama yapıldığı için ID anlamsız, UI'da kullanılmıyor
-                    Quantity = x.TotalQuantity,
-                    Barcode = string.Empty, // Gruplama yapıldığı için tek bir barkod yok
-                    QrCode = qrCode,  // Varsa grup içindeki ilk QR kod
-                    CreatedAt = x.FirstCreatedAt != DateTime.MinValue ? x.FirstCreatedAt : null,
-                    UpdatedAt = x.LastUpdatedAt != DateTime.MinValue ? x.LastUpdatedAt : null,
-                    TotalWeight = x.TotalWeight,
-                    WorkmanshipMilyem = null, // Gruplama yapıldığı için WorkmanshipMilyem bilgisi yok
-                    TotalMilyem = hamMilyem, // Sadece ham milyem (gruplama yapıldığı için)
-
+                    Id = x.StockId,
+                    Quantity = x.Quantity,
+                    Barcode = x.Barcode ?? string.Empty,
+                    QrCode = x.QrCode,
+                    CreatedAt = x.CreatedAt,
+                    UpdatedAt = x.UpdatedAt,
+                    TotalWeight = x.TotalWeightGram,
+                    WorkmanshipMilyem = x.WorkmanshipMilyem,
+                    TotalMilyem = totalMilyem,
                     Branch = new StockDto.BranchBrief
                     {
                         Id = x.BranchId,
@@ -213,13 +145,12 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                     },
                     ProductVariant = new StockDto.VariantBrief
                     {
-                        Id = x.ProductVariantId,
+                        Id = x.VariantId,
                         Name = x.VariantName,
                         Ayar = x.VariantAyar,
                         Color = x.VariantColor,
                         Brand = x.VariantBrand,
-                        // Gruplama yapıldığı için tek bir Gram değeri yok, null bırakıyoruz
-                        Gram = null,
+                        Gram = x.VariantGram,
                         ProductTypeId = x.TypeId,
                         ProductTypeName = x.TypeName,
                         CategoryName = x.CategoryName
@@ -229,7 +160,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
 
             return ApiResult<PagedResult<StockDto>>.Ok(
                 new PagedResult<StockDto> { Items = items, Page = page, PageSize = pageSize, TotalCount = total },
-                "Şube stok listesi (varyant bazında gruplanmış)", 200);
+                "Şube stok listesi", 200);
         }
 
         // -------- DETAY: seçilen varyant, aynı store’daki tüm şubeler --------
@@ -266,7 +197,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                     BranchId = g.Key.Id,
                     BranchName = g.Key.Name,
                     ToplamAdet = g.Sum(z => z.s.Quantity ?? 0),
-                    ToplamAgirlik = g.Sum(z => (z.s.Gram ?? 0) * (decimal)(z.s.Quantity ?? 0))
+                    ToplamAgirlik = g.Sum(z => z.s.TotalWeightGram)
                 };
 
             var dto = new StockVariantDetailByStoreDto
@@ -329,6 +260,15 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             if (dto.Quantity <= 0)
                 return ApiResult<StockDto>.Fail("Quantity >= 1 olmalıdır.", statusCode: 400);
 
+            var effectiveTotalWeightGram = dto.TotalWeightGram;
+            if (effectiveTotalWeightGram <= 0 && dto.Gram.HasValue && dto.Gram.Value > 0)
+            {
+                effectiveTotalWeightGram = dto.Gram.Value;
+            }
+
+            if (effectiveTotalWeightGram <= 0)
+                return ApiResult<StockDto>.Fail("TotalWeightGram 0'dan büyük olmalıdır.", statusCode: 400);
+
             // Transaction başlat (PurchasePrice varsa)
             using var transaction = (dto.PurchasePrice.HasValue && dto.PurchasePrice.Value > 0 && !skipPurchaseCreation)
                 ? await _db.Database.BeginTransactionAsync(ct)
@@ -338,23 +278,17 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             
             try
             {
-                // Merge Criteria: Aynı özelliklere sahip stok var mı?
+                // Merge Criteria: Aynı varyant + şube
                 var match = await _db.Stocks.FirstOrDefaultAsync(s =>
                     s.ProductVariantId == dto.ProductVariantId &&
-                    s.BranchId == branchId &&
-                    s.Gram == dto.Gram &&
-                    s.Thickness == dto.Thickness &&
-                    s.Width == dto.Width &&
-                    s.StoneType == dto.StoneType &&
-                    s.Carat == dto.Carat &&
-                    s.WorkmanshipMilyem == dto.WorkmanshipMilyem &&
-                    s.Color == dto.Color
+                    s.BranchId == branchId
                 , ct);
 
                 if (match != null)
                 {
                     // MERGE: Mevcut quantity'i artır
                     match.Quantity = (match.Quantity ?? 0) + dto.Quantity;
+                    match.TotalWeightGram += effectiveTotalWeightGram;
                     match.UpdatedAt = DateTime.UtcNow;
 
                     if (dto.GenerateQrCode && string.IsNullOrWhiteSpace(match.QrCode))
@@ -373,7 +307,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                     // PurchasePrice varsa ve skipPurchaseCreation false ise Purchase kaydı oluştur
                     if (dto.PurchasePrice.HasValue && dto.PurchasePrice.Value > 0 && !skipPurchaseCreation)
                     {
-                        await CreatePurchaseRecordAsync(stockId, branchId.Value, dto.Quantity, dto.PurchasePrice.Value, ct);
+                        await CreatePurchaseRecordAsync(stockId, branchId.Value, dto.Quantity, effectiveTotalWeightGram, dto.PurchasePrice.Value, ct);
                     }
 
                     if (transaction != null)
@@ -407,6 +341,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                     ProductVariantId = dto.ProductVariantId,
                     BranchId = branchId,
                     Quantity = dto.Quantity,
+                    TotalWeightGram = effectiveTotalWeightGram,
                     Barcode = barcode,
                     QrCode = dto.GenerateQrCode && string.IsNullOrWhiteSpace(dto.QrCode)
                         ? null
@@ -437,7 +372,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                 // PurchasePrice varsa ve skipPurchaseCreation false ise Purchase kaydı oluştur
                 if (dto.PurchasePrice.HasValue && dto.PurchasePrice.Value > 0 && !skipPurchaseCreation)
                 {
-                    await CreatePurchaseRecordAsync(stockId, branchId.Value, dto.Quantity, dto.PurchasePrice.Value, ct);
+                    await CreatePurchaseRecordAsync(stockId, branchId.Value, dto.Quantity, effectiveTotalWeightGram, dto.PurchasePrice.Value, ct);
                 }
 
                 if (transaction != null)
@@ -458,7 +393,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             }
         }
 
-        private async Task CreatePurchaseRecordAsync(Guid stockId, int branchId, int quantity, decimal purchasePrice, CancellationToken ct)
+        private async Task CreatePurchaseRecordAsync(Guid stockId, int branchId, int quantity, decimal totalWeightGram, decimal purchasePrice, CancellationToken ct)
         {
             var userId = _user.UserId;
             if (!userId.HasValue)
@@ -484,6 +419,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                 StockId = stockId,
                 Quantity = quantity,
                 PurchasePrice = purchasePrice,
+                TotalWeightGram = totalWeightGram,
                 UpdatedAt = DateTime.UtcNow
             });
 
@@ -671,7 +607,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                 QrCode = s.QrCode,
                 CreatedAt = s.CreatedAt,
                 UpdatedAt = s.UpdatedAt,
-                TotalWeight = (s.Gram ?? 0) * (decimal)(s.Quantity ?? 0),
+                TotalWeight = s.TotalWeightGram,
                 WorkmanshipMilyem = s.WorkmanshipMilyem,
                 TotalMilyem = totalMilyem,
                 Branch = new StockDto.BranchBrief

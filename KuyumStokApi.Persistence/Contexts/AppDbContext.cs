@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using KuyumStokApi.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -363,6 +363,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.PurchasePrice).HasColumnName("purchase_price");
             entity.Property(e => e.Quantity).HasColumnName("quantity");
             entity.Property(e => e.StockId).HasColumnName("stock_id");
+            entity.Property(e => e.TotalWeightGram).HasColumnName("total_weight_gram");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
@@ -446,6 +447,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.SaleId).HasColumnName("sale_id");
             entity.Property(e => e.SoldPrice).HasColumnName("sold_price");
             entity.Property(e => e.StockId).HasColumnName("stock_id");
+            entity.Property(e => e.TotalWeightGram).HasColumnName("total_weight_gram");
             entity.Property(e => e.UpdatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("updated_at");
@@ -534,6 +536,7 @@ public partial class AppDbContext : DbContext
             entity.ToTable("stocks");
 
             entity.HasIndex(e => e.Barcode, "stocks_barcode_key").IsUnique();
+            entity.HasIndex(e => new { e.BranchId, e.ProductVariantId }, "ux_stocks_branch_variant").IsUnique();
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.Barcode).HasColumnName("barcode");
@@ -544,6 +547,7 @@ public partial class AppDbContext : DbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("created_at");
             entity.Property(e => e.Gram).HasColumnName("gram");
+            entity.Property(e => e.TotalWeightGram).HasColumnName("total_weight_gram");
             entity.Property(e => e.WorkmanshipMilyem)
                 .HasColumnName("workmanship_milyem")
                 .HasComment("İşçilik milyem değeri");

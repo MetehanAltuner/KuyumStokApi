@@ -15,31 +15,32 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
 {
     public sealed class ReportsService : IReportsService
     {
-        private readonly AppDbContext _db;
+        private readonly IDbContextFactory<AppDbContext> _dbFactory;
         private readonly ICurrentUserContext _currentUser;
         private readonly ILogger<ReportsService> _logger;
 
         private static readonly string[] OwnerRoleHints = { "owner", "admin" };
         private static readonly string[] ManagerRoleHints = { "manager" };
 
-        public ReportsService(AppDbContext db, ICurrentUserContext currentUser, ILogger<ReportsService> logger)
+        public ReportsService(IDbContextFactory<AppDbContext> dbFactory, ICurrentUserContext currentUser, ILogger<ReportsService> logger)
         {
-            _db = db;
+            _dbFactory = dbFactory;
             _currentUser = currentUser;
             _logger = logger;
         }
 
         public async Task<ApiResult<StoreOverviewReportDto>> GetStoreOverviewAsync(ReportDateRange range, CancellationToken ct = default)
         {
-            var scope = await ResolveScopeAsync(ct);
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var scope = await ResolveScopeAsync(db, ct);
             if (!scope.AccessibleBranchIds.Any())
                 return ApiResult<StoreOverviewReportDto>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
 
             var (fromUtc, toUtc) = NormalizeRange(range);
 
-            var saleLines = BuildSaleLineQuery(fromUtc, toUtc, scope.AccessibleBranchIds);
-            var purchaseLines = BuildPurchaseLineQuery(fromUtc, toUtc, scope.AccessibleBranchIds);
-            var salesQuery = BuildSalesQuery(fromUtc, toUtc, scope.AccessibleBranchIds);
+            var saleLines = BuildSaleLineQuery(db, fromUtc, toUtc, scope.AccessibleBranchIds);
+            var purchaseLines = BuildPurchaseLineQuery(db, fromUtc, toUtc, scope.AccessibleBranchIds);
+            var salesQuery = BuildSalesQuery(db, fromUtc, toUtc, scope.AccessibleBranchIds);
 
             var totalRevenue = await saleLines.SumAsync(x => x.Revenue, ct);
             var totalQuantity = await saleLines.SumAsync(x => x.Quantity, ct);
@@ -87,7 +88,7 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
                     .OrderByDescending(x => x.Value)
                     .Take(10)
                     .ToListAsync(ct),
-                RevenueTrend = await BuildTrendAsync(fromUtc, toUtc, scope.AccessibleBranchIds, ReportTrendGranularity.Daily, ct)
+                RevenueTrend = await BuildTrendAsync(db, fromUtc, toUtc, scope.AccessibleBranchIds, ReportTrendGranularity.Daily, ct)
             };
 
             return ApiResult<StoreOverviewReportDto>.Ok(overview, "Mağaza raporu hazırlandı", 200);
@@ -95,7 +96,8 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
 
         public async Task<ApiResult<BranchOverviewReportDto>> GetBranchOverviewAsync(int? branchId, ReportDateRange range, CancellationToken ct = default)
         {
-            var scope = await ResolveScopeAsync(ct);
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var scope = await ResolveScopeAsync(db, ct);
             if (!scope.AccessibleBranchIds.Any())
                 return ApiResult<BranchOverviewReportDto>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
 
@@ -106,17 +108,17 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
             var (fromUtc, toUtc) = NormalizeRange(range);
             var branchIds = new[] { targetBranchId };
 
-            var saleLines = BuildSaleLineQuery(fromUtc, toUtc, branchIds);
-            var purchaseLines = BuildPurchaseLineQuery(fromUtc, toUtc, branchIds);
-            var salesQuery = BuildSalesQuery(fromUtc, toUtc, branchIds);
+            var saleLines = BuildSaleLineQuery(db, fromUtc, toUtc, branchIds);
+            var purchaseLines = BuildPurchaseLineQuery(db, fromUtc, toUtc, branchIds);
+            var salesQuery = BuildSalesQuery(db, fromUtc, toUtc, branchIds);
 
             var totalRevenue = await saleLines.SumAsync(x => x.Revenue, ct);
             var totalQuantity = await saleLines.SumAsync(x => x.Quantity, ct);
             var totalSalesCount = await salesQuery.CountAsync(ct);
             var uniqueCustomerCount = await salesQuery.Select(x => x.CustomerId).Where(x => x != null).Distinct().CountAsync(ct);
             var totalCost = await purchaseLines.SumAsync(x => x.Cost, ct);
-            var branchName = await _db.Branches.AsNoTracking().Where(b => b.Id == targetBranchId).Select(b => b.Name).FirstOrDefaultAsync(ct);
-            var stockQuery = _db.Stocks.AsNoTracking().Where(s => s.BranchId == targetBranchId);
+            var branchName = await db.Branches.AsNoTracking().Where(b => b.Id == targetBranchId).Select(b => b.Name).FirstOrDefaultAsync(ct);
+            var stockQuery = db.Stocks.AsNoTracking().Where(s => s.BranchId == targetBranchId);
             var activeStockCount = await stockQuery.CountAsync(ct);
             var totalStockQuantity = await stockQuery.SumAsync(s => s.Quantity ?? 0, ct);
 
@@ -155,7 +157,7 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
                     .OrderByDescending(x => x.Value)
                     .Take(10)
                     .ToListAsync(ct),
-                RevenueTrend = await BuildTrendAsync(fromUtc, toUtc, branchIds, ReportTrendGranularity.Daily, ct)
+                RevenueTrend = await BuildTrendAsync(db, fromUtc, toUtc, branchIds, ReportTrendGranularity.Daily, ct)
             };
 
             return ApiResult<BranchOverviewReportDto>.Ok(report, "Şube raporu hazırlandı", 200);
@@ -163,13 +165,14 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
 
         public async Task<ApiResult<UserPerformanceReportDto>> GetUserPerformanceAsync(int? userId, ReportDateRange range, CancellationToken ct = default)
         {
-            var scope = await ResolveScopeAsync(ct);
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var scope = await ResolveScopeAsync(db, ct);
             if (!scope.AccessibleBranchIds.Any())
                 return ApiResult<UserPerformanceReportDto>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
 
             var targetUserId = userId ?? scope.UserId;
 
-            var userInfo = await _db.Users.AsNoTracking()
+            var userInfo = await db.Users.AsNoTracking()
                 .Include(u => u.Branch)
                 .Where(u => u.Id == targetUserId)
                 .Select(u => new { u.Id, u.Username, u.FirstName, u.LastName, u.BranchId, BranchName = u.Branch != null ? u.Branch.Name : null })
@@ -183,9 +186,9 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
 
             var (fromUtc, toUtc) = NormalizeRange(range);
 
-            var saleLines = BuildSaleLineQuery(fromUtc, toUtc, scope.AccessibleBranchIds)
+            var saleLines = BuildSaleLineQuery(db, fromUtc, toUtc, scope.AccessibleBranchIds)
                 .Where(x => x.UserId == userInfo.Id);
-            var salesQuery = BuildSalesQuery(fromUtc, toUtc, scope.AccessibleBranchIds)
+            var salesQuery = BuildSalesQuery(db, fromUtc, toUtc, scope.AccessibleBranchIds)
                 .Where(x => x.UserId == userInfo.Id);
 
             var totalRevenue = await saleLines.SumAsync(x => x.Revenue, ct);
@@ -227,7 +230,7 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
                     .OrderByDescending(x => x.Value)
                     .Take(10)
                     .ToListAsync(ct),
-                RevenueTrend = await BuildTrendAsync(fromUtc, toUtc, scope.AccessibleBranchIds, ReportTrendGranularity.Daily, ct, userInfo.Id)
+                RevenueTrend = await BuildTrendAsync(db, fromUtc, toUtc, scope.AccessibleBranchIds, ReportTrendGranularity.Daily, ct, userInfo.Id)
             };
 
             return ApiResult<UserPerformanceReportDto>.Ok(report, "Kullanıcı performans raporu hazırlandı", 200);
@@ -235,13 +238,14 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
 
         public async Task<ApiResult<SalesTrendReportDto>> GetSalesTrendAsync(ReportTrendGranularity granularity, ReportDateRange range, CancellationToken ct = default)
         {
-            var scope = await ResolveScopeAsync(ct);
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var scope = await ResolveScopeAsync(db, ct);
             if (!scope.AccessibleBranchIds.Any())
                 return ApiResult<SalesTrendReportDto>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
 
             var (fromUtc, toUtc) = NormalizeRange(range);
 
-            var trend = await BuildTrendAsync(fromUtc, toUtc, scope.AccessibleBranchIds, granularity, ct);
+            var trend = await BuildTrendAsync(db, fromUtc, toUtc, scope.AccessibleBranchIds, granularity, ct);
 
             var dto = new SalesTrendReportDto
             {
@@ -256,20 +260,20 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
 
         #region Helpers
 
-        private IQueryable<SaleLineProjection> BuildSaleLineQuery(DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<int> branchIds)
+        private static IQueryable<SaleLineProjection> BuildSaleLineQuery(AppDbContext db, DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<int> branchIds)
         {
             return
-                from d in _db.SaleDetails.AsNoTracking()
-                join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                from d in db.SaleDetails.AsNoTracking()
+                join s in db.Sales.AsNoTracking() on d.SaleId equals s.Id
                 where s.BranchId != null && branchIds.Contains(s.BranchId.Value)
                 let created = s.CreatedAt ?? s.UpdatedAt ?? fromUtc
                 where created >= fromUtc && created <= toUtc
-                join b in _db.Branches.AsNoTracking() on s.BranchId equals b.Id
-                join u in _db.Users.AsNoTracking() on s.UserId equals u.Id into ju
+                join b in db.Branches.AsNoTracking() on s.BranchId equals b.Id
+                join u in db.Users.AsNoTracking() on s.UserId equals u.Id into ju
                 from u in ju.DefaultIfEmpty()
-                join st in _db.Stocks.AsNoTracking() on d.StockId equals st.Id into js
+                join st in db.Stocks.AsNoTracking() on d.StockId equals st.Id into js
                 from st in js.DefaultIfEmpty()
-                join pv in _db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id into jpv
+                join pv in db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id into jpv
                 from pv in jpv.DefaultIfEmpty()
                 select new SaleLineProjection
                 {
@@ -292,11 +296,11 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
                 };
         }
 
-        private IQueryable<PurchaseLineProjection> BuildPurchaseLineQuery(DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<int> branchIds)
+        private static IQueryable<PurchaseLineProjection> BuildPurchaseLineQuery(AppDbContext db, DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<int> branchIds)
         {
             return
-                from d in _db.PurchaseDetails.AsNoTracking()
-                join p in _db.Purchases.AsNoTracking() on d.PurchaseId equals p.Id
+                from d in db.PurchaseDetails.AsNoTracking()
+                join p in db.Purchases.AsNoTracking() on d.PurchaseId equals p.Id
                 where p.BranchId != null && branchIds.Contains(p.BranchId.Value)
                 let created = p.CreatedAt ?? p.UpdatedAt ?? fromUtc
                 where created >= fromUtc && created <= toUtc
@@ -308,10 +312,10 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
                 };
         }
 
-        private IQueryable<SaleHeaderProjection> BuildSalesQuery(DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<int> branchIds)
+        private static IQueryable<SaleHeaderProjection> BuildSalesQuery(AppDbContext db, DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<int> branchIds)
         {
             return
-                from s in _db.Sales.AsNoTracking()
+                from s in db.Sales.AsNoTracking()
                 where s.BranchId != null && branchIds.Contains(s.BranchId.Value)
                 let created = s.CreatedAt ?? s.UpdatedAt ?? fromUtc
                 where created >= fromUtc && created <= toUtc
@@ -324,7 +328,8 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
                 };
         }
 
-        private async Task<List<TrendPointDto>> BuildTrendAsync(
+        private static async Task<List<TrendPointDto>> BuildTrendAsync(
+            AppDbContext db,
             DateTime fromUtc,
             DateTime toUtc,
             IReadOnlyCollection<int> branchIds,
@@ -333,8 +338,8 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
             int? userId = null)
         {
             var salesBuckets = await
-                (from d in _db.SaleDetails.AsNoTracking()
-                 join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                (from d in db.SaleDetails.AsNoTracking()
+                 join s in db.Sales.AsNoTracking() on d.SaleId equals s.Id
                  where s.BranchId != null && branchIds.Contains(s.BranchId.Value)
                  let created = s.CreatedAt ?? s.UpdatedAt ?? fromUtc
                  where created >= fromUtc && created <= toUtc
@@ -348,8 +353,8 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
                  }).ToListAsync(ct);
 
             var purchaseBuckets = await
-                (from d in _db.PurchaseDetails.AsNoTracking()
-                 join p in _db.Purchases.AsNoTracking() on d.PurchaseId equals p.Id
+                (from d in db.PurchaseDetails.AsNoTracking()
+                 join p in db.Purchases.AsNoTracking() on d.PurchaseId equals p.Id
                  where p.BranchId != null && branchIds.Contains(p.BranchId.Value)
                  let created = p.CreatedAt ?? p.UpdatedAt ?? fromUtc
                  where created >= fromUtc && created <= toUtc
@@ -400,12 +405,12 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
             };
         }
 
-        private async Task<ReportScope> ResolveScopeAsync(CancellationToken ct)
+        private async Task<ReportScope> ResolveScopeAsync(AppDbContext db, CancellationToken ct)
         {
             if (!_currentUser.IsAuthenticated || !_currentUser.UserId.HasValue)
                 throw new InvalidOperationException("Kullanıcı kimliği doğrulanamadı.");
 
-            var user = await _db.Users.AsNoTracking()
+            var user = await db.Users.AsNoTracking()
                 .Include(u => u.Branch)
                 .ThenInclude(b => b.Store)
                 .Include(u => u.Role)
@@ -421,14 +426,14 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
             {
                 if (user.Branch?.StoreId != null)
                 {
-                    branchIds = await _db.Branches.AsNoTracking()
+                    branchIds = await db.Branches.AsNoTracking()
                         .Where(b => b.StoreId == user.Branch.StoreId && !b.IsDeleted)
                         .Select(b => b.Id)
                         .ToListAsync(ct);
                 }
                 else
                 {
-                    branchIds = await _db.Branches.AsNoTracking()
+                    branchIds = await db.Branches.AsNoTracking()
                         .Where(b => !b.IsDeleted)
                         .Select(b => b.Id)
                         .ToListAsync(ct);

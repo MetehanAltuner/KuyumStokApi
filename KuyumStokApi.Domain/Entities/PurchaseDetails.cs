@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace KuyumStokApi.Domain.Entities;
@@ -12,6 +12,8 @@ public partial class PurchaseDetails
     public int? Quantity { get; set; }
 
     public decimal? PurchasePrice { get; set; }
+
+    public decimal TotalWeightGram { get; set; }
 
     public DateTime? UpdatedAt { get; set; }
 

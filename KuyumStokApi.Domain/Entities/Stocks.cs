@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace KuyumStokApi.Domain.Entities;
@@ -22,6 +22,8 @@ public partial class Stocks
     public DateTime? UpdatedAt { get; set; }
 
     public decimal? Gram { get; set; }
+
+    public decimal TotalWeightGram { get; set; }
 
     public decimal? Thickness { get; set; }
 

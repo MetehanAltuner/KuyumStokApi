@@ -1,4 +1,4 @@
-﻿using KuyumStokApi.Application.Interfaces.Services;
+using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Infrastructure.Auth;
 using KuyumStokApi.Infrastructure.Services.JwtService;
 using KuyumStokApi.Infrastructure.Services.ProductCategoryService;
@@ -91,7 +91,7 @@ namespace KuyumStokApi.Infrastructure
             // DashboardService için IHubContext<DashboardHub> inject et
             services.AddScoped<IDashboardService>(sp =>
             {
-                var db = sp.GetRequiredService<KuyumStokApi.Persistence.Contexts.AppDbContext>();
+                var dbFactory = sp.GetRequiredService<Microsoft.EntityFrameworkCore.IDbContextFactory<KuyumStokApi.Persistence.Contexts.AppDbContext>>();
                 var currentUser = sp.GetRequiredService<KuyumStokApi.Application.Interfaces.Auth.ICurrentUserContext>();
                 var reportsService = sp.GetRequiredService<IReportsService>();
                 var anomalyDetectionService = sp.GetRequiredService<AnomalyDetectionService>();
@@ -100,7 +100,7 @@ namespace KuyumStokApi.Infrastructure
                 var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<DashboardService>>();
                 
                 return new DashboardService(
-                    db,
+                    dbFactory,
                     currentUser,
                     reportsService,
                     anomalyDetectionService,

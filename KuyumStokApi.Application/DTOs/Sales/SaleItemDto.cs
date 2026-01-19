@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -12,6 +12,7 @@ namespace KuyumStokApi.Application.DTOs.Sales
         public Guid StockId { get; set; }         // hangi stok satılıyor
         public int Quantity { get; set; }        // -adet
         public decimal SoldPrice { get; set; }   // detay tablosu için
+        public decimal TotalWeightGram { get; set; } // satır toplam ağırlık
     }
 
     /// <summary>Satış fişi oluşturma DTO'su (Çoklu Ödeme Destekli).</summary>

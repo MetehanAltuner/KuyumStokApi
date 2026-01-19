@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace KuyumStokApi.Application.DTOs.Stocks
 {
@@ -16,7 +16,7 @@ namespace KuyumStokApi.Application.DTOs.Stocks
         public DateTime? CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
 
-        /// <summary>Satır için toplam ağırlık = (Gram * Adet)</summary>
+        /// <summary>Satır için toplam ağırlık (toplam gram).</summary>
         public decimal TotalWeight { get; set; }
 
         public int? WorkmanshipMilyem { get; set; }
@@ -54,6 +54,9 @@ namespace KuyumStokApi.Application.DTOs.Stocks
         public string? Barcode { get; set; }
         public string? QrCode { get; set; }
         public bool GenerateQrCode { get; set; }
+
+        /// <summary>Satır toplam ağırlığı (gram).</summary>
+        public decimal TotalWeightGram { get; set; }
 
         // Fiziksel/ayrıştırıcı özellikler (merge için şart)
         public decimal? Gram { get; set; }

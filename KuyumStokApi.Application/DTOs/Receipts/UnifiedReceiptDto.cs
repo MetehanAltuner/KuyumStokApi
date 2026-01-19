@@ -26,6 +26,9 @@ namespace KuyumStokApi.Application.DTOs.Receipts
 
         /// <summary>Satır bazında satış fiyatı.</summary>
         public decimal SoldPrice { get; set; }
+
+        /// <summary>Satır toplam ağırlığı (gram).</summary>
+        public decimal TotalWeightGram { get; set; }
     }
 
     /// <summary>Alış kalemi: stok oluşturmak için gerekli temel alanlar.</summary>
@@ -36,6 +39,7 @@ namespace KuyumStokApi.Application.DTOs.Receipts
         public string? Barcode { get; set; }
         public int Quantity { get; set; } = 1;
         public decimal PurchasePrice { get; set; }
+        public decimal TotalWeightGram { get; set; }
         public bool GenerateQrCode { get; set; }
 
         // Opsiyonel fiziksel özellikler

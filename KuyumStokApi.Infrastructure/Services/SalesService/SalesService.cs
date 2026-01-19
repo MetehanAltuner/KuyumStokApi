@@ -1,4 +1,4 @@
-﻿using KuyumStokApi.Application.Common;
+using KuyumStokApi.Application.Common;
 using KuyumStokApi.Application.DTOs.Receipts;
 using KuyumStokApi.Application.DTOs.Sales;
 using KuyumStokApi.Application.DTOs.Stocks;
@@ -165,7 +165,7 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                     ProductName = x.pv != null ? x.pv.Name : null,
                     Ayar = x.pv != null ? x.pv.Ayar : null,
                     Renk = x.pv != null ? x.pv.Color : null,
-                    AgirlikGram = x.st.Gram,
+                    AgirlikGram = x.d.TotalWeightGram,
                     Quantity = x.d.Quantity ?? 0,
                     SoldPrice = x.d.SoldPrice
                 })
@@ -204,7 +204,7 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                     ProductName = pv != null ? pv.Name : null,
                     Ayar = pv != null ? pv.Ayar : null,
                     Renk = pv != null ? pv.Color : null,
-                    AgirlikGram = st.Gram,
+                    AgirlikGram = d.TotalWeightGram,
 
                     ListeFiyati = null,                 // Şemada katalog/list price yok
                     SatisFiyati = d.SoldPrice
@@ -299,6 +299,8 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                     throw new InvalidOperationException("Geçersiz StockId.");
                 if (item.Quantity <= 0)
                     throw new InvalidOperationException($"Geçersiz adet: {item.Quantity}");
+                if (item.TotalWeightGram <= 0)
+                    throw new InvalidOperationException("TotalWeightGram 0'dan büyük olmalıdır.");
                 if (item.SoldPrice <= 0)
                     throw new InvalidOperationException("SoldPrice 0'dan büyük olmalıdır.");
 
@@ -313,7 +315,11 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                 if (currentQty < item.Quantity)
                     throw new InvalidOperationException($"Yetersiz stok (id:{item.StockId}, mevcut:{currentQty})");
 
+                if (stock.TotalWeightGram < item.TotalWeightGram)
+                    throw new InvalidOperationException($"Yetersiz ağırlık (id:{item.StockId}, mevcut:{stock.TotalWeightGram:0.###}g)");
+
                 stock.Quantity = currentQty - item.Quantity;
+                stock.TotalWeightGram -= item.TotalWeightGram;
                 stock.UpdatedAt = DateTime.UtcNow;
 
                 _db.SaleDetails.Add(new SaleDetails
@@ -321,7 +327,8 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                     SaleId = sale.Id,
                     StockId = stock.Id,
                     Quantity = item.Quantity,
-                    SoldPrice = item.SoldPrice
+                    SoldPrice = item.SoldPrice,
+                    TotalWeightGram = item.TotalWeightGram
                 });
 
                 _db.ProductLifecycles.Add(new ProductLifecycles
@@ -380,6 +387,8 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                     throw new InvalidOperationException("Alış kaleminde BranchId zorunludur.");
                 if (item.Quantity <= 0)
                     throw new InvalidOperationException($"Geçersiz adet: {item.Quantity}");
+                if (item.TotalWeightGram <= 0)
+                    throw new InvalidOperationException("TotalWeightGram 0'dan büyük olmalıdır.");
                 if (item.PurchasePrice <= 0)
                     throw new InvalidOperationException("PurchasePrice 0'dan büyük olmalıdır.");
 
@@ -391,6 +400,7 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                     Barcode = item.Barcode,
                     QrCode = item.QrCode,
                     GenerateQrCode = item.GenerateQrCode,
+                    TotalWeightGram = item.TotalWeightGram,
                     Gram = item.Gram,
                     Thickness = item.Thickness,
                     Width = item.Width,
@@ -412,7 +422,8 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                     PurchaseId = purchase.Id,
                     StockId = stockId,
                     Quantity = item.Quantity,
-                    PurchasePrice = item.PurchasePrice
+                    PurchasePrice = item.PurchasePrice,
+                    TotalWeightGram = item.TotalWeightGram
                 });
 
                 _db.ProductLifecycles.Add(new ProductLifecycles

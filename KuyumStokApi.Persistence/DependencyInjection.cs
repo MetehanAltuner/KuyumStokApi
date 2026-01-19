@@ -1,4 +1,4 @@
-﻿using KuyumStokApi.Persistence.Contexts;
+using KuyumStokApi.Persistence.Contexts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,13 +15,19 @@ namespace KuyumStokApi.Persistence
         public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration cfg)
         {
             var connectionString = cfg.GetConnectionString("DefaultConnection");
+            void ConfigureDbContext(DbContextOptionsBuilder opt)
+            {
+                opt.UseNpgsql(connectionString);
+            }
             
             // AddDbContext factory overload kullanarak ServiceProvider'ı set edebiliriz
             // Factory delegate içinde AppDbContext oluşturulduğunda ServiceProvider'ı set ediyoruz
-            services.AddDbContext<AppDbContext>((serviceProvider, opt) =>
-            {
-                opt.UseNpgsql(connectionString);
-            });
+            services.AddDbContext<AppDbContext>(
+                (serviceProvider, opt) => { ConfigureDbContext(opt); },
+                ServiceLifetime.Scoped,
+                ServiceLifetime.Singleton);
+
+            services.AddScoped<IDbContextFactory<AppDbContext>, AppDbContextFactory>();
             
             // AddDbContext zaten bir factory oluşturuyor, ancak ServiceProvider'ı set etmek için
             // factory'yi override ediyoruz. Bu, her DbContext instance'ı oluşturulduğunda
@@ -32,7 +38,7 @@ namespace KuyumStokApi.Persistence
             {
                 // DbContextOptionsBuilder kullanarak options oluştur
                 var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
-                optionsBuilder.UseNpgsql(connectionString);
+                ConfigureDbContext(optionsBuilder);
                 
                 var currentUser = sp.GetService<KuyumStokApi.Application.Common.ICurrentUserService>();
                 

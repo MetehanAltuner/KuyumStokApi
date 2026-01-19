@@ -18,7 +18,7 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
 {
     public sealed class DashboardService : IDashboardService
     {
-        private readonly AppDbContext _db;
+        private readonly IDbContextFactory<AppDbContext> _dbFactory;
         private readonly ICurrentUserContext _currentUser;
         private readonly IReportsService _reportsService;
         private readonly KuyumStokApi.Infrastructure.Services.AnomalyDetectionService.AnomalyDetectionService _anomalyDetectionService;
@@ -30,7 +30,7 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
         private static readonly string[] ManagerRoleHints = { "manager" };
 
         public DashboardService(
-            AppDbContext db,
+            IDbContextFactory<AppDbContext> dbFactory,
             ICurrentUserContext currentUser,
             IReportsService reportsService,
             KuyumStokApi.Infrastructure.Services.AnomalyDetectionService.AnomalyDetectionService anomalyDetectionService,
@@ -38,7 +38,7 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
             IHubContext<DashboardHub>? hubContext = null,
             ILogger<DashboardService> logger = null!)
         {
-            _db = db;
+            _dbFactory = dbFactory;
             _currentUser = currentUser;
             _reportsService = reportsService;
             _anomalyDetectionService = anomalyDetectionService;
@@ -51,7 +51,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
         {
             try
             {
-                var scope = await ResolveScopeAsync(ct);
+                await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                var scope = await ResolveScopeAsync(db, ct);
                 if (!scope.AccessibleBranchIds.Any())
                     return ApiResult<LiveCountersDto>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
 
@@ -59,7 +60,7 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 var todayStart = new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc);
 
                 // Son satış zamanı
-                var lastSale = await _db.Sales.AsNoTracking()
+                var lastSale = await db.Sales.AsNoTracking()
                     .Where(s => s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value))
                     .OrderByDescending(s => s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue)
                     .Select(s => s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue)
@@ -70,12 +71,12 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                     : 0;
 
                 // Bugünkü işlem sayısı
-                var todaySalesCount = await _db.Sales.AsNoTracking()
+                var todaySalesCount = await db.Sales.AsNoTracking()
                     .Where(s => s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value) &&
                                 (s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue) >= todayStart)
                     .CountAsync(ct);
 
-                var todayPurchasesCount = await _db.Purchases.AsNoTracking()
+                var todayPurchasesCount = await db.Purchases.AsNoTracking()
                     .Where(p => p.BranchId != null && scope.AccessibleBranchIds.Contains(p.BranchId.Value) &&
                                 (p.CreatedAt ?? p.UpdatedAt ?? DateTime.MinValue) >= todayStart)
                     .CountAsync(ct);
@@ -83,7 +84,7 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 var todayTransactionCount = todaySalesCount + todayPurchasesCount;
 
                 // Stok senkronizasyon zamanı
-                var lastStockSync = await _db.Stocks.AsNoTracking()
+                var lastStockSync = await db.Stocks.AsNoTracking()
                     .Where(s => s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value))
                     .OrderByDescending(s => s.UpdatedAt ?? s.CreatedAt ?? DateTime.MinValue)
                     .Select(s => s.UpdatedAt ?? s.CreatedAt ?? DateTime.MinValue)
@@ -136,7 +137,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
         {
             try
             {
-                var scope = await ResolveScopeAsync(ct);
+                await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                var scope = await ResolveScopeAsync(db, ct);
                 if (!scope.AccessibleBranchIds.Any())
                     return ApiResult<DailySummaryDto>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
 
@@ -145,8 +147,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 var dayEnd = dayStart.AddDays(1).AddTicks(-1);
 
                 // Satış toplamı
-                var totalSales = await (from d in _db.SaleDetails.AsNoTracking()
-                                       join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                var totalSales = await (from d in db.SaleDetails.AsNoTracking()
+                                       join s in db.Sales.AsNoTracking() on d.SaleId equals s.Id
                                        where s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value)
                                        let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
                                        where created >= dayStart && created <= dayEnd
@@ -154,8 +156,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                     .SumAsync(ct);
 
                 // Alış maliyeti
-                var totalCost = await (from d in _db.PurchaseDetails.AsNoTracking()
-                                      join p in _db.Purchases.AsNoTracking() on d.PurchaseId equals p.Id
+                var totalCost = await (from d in db.PurchaseDetails.AsNoTracking()
+                                      join p in db.Purchases.AsNoTracking() on d.PurchaseId equals p.Id
                                       where p.BranchId != null && scope.AccessibleBranchIds.Contains(p.BranchId.Value)
                                       let created = p.CreatedAt ?? p.UpdatedAt ?? DateTime.MinValue
                                       where created >= dayStart && created <= dayEnd
@@ -172,14 +174,14 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 profitPercentage = Math.Round(profitPercentage, 2);
 
                 // En çok satan ürün
-                var topSellingProduct = await (from d in _db.SaleDetails.AsNoTracking()
-                                              join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                var topSellingProduct = await (from d in db.SaleDetails.AsNoTracking()
+                                              join s in db.Sales.AsNoTracking() on d.SaleId equals s.Id
                                               where s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value)
                                               let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
                                               where created >= dayStart && created <= dayEnd
-                                              join st in _db.Stocks.AsNoTracking() on d.StockId equals st.Id into js
+                                              join st in db.Stocks.AsNoTracking() on d.StockId equals st.Id into js
                                               from st in js.DefaultIfEmpty()
-                                              join pv in _db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id into jpv
+                                              join pv in db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id into jpv
                                               from pv in jpv.DefaultIfEmpty()
                                               group d by new { ProductName = pv != null ? pv.Name : st != null ? st.Barcode : "Tanımsız" } into g
                                               orderby g.Sum(x => x.Quantity ?? 0) descending
@@ -187,9 +189,9 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                     .FirstOrDefaultAsync(ct);
 
                 // Kritik stok sayısı
-                var criticalStockCount = await (from s in _db.Stocks.AsNoTracking()
+                var criticalStockCount = await (from s in db.Stocks.AsNoTracking()
                                                 where s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value)
-                                                join l in _db.Limits.AsNoTracking() on new { s.BranchId, s.ProductVariantId } equals new { BranchId = l.BranchId, ProductVariantId = l.ProductVariantId } into jl
+                                                join l in db.Limits.AsNoTracking() on new { s.BranchId, s.ProductVariantId } equals new { BranchId = l.BranchId, ProductVariantId = l.ProductVariantId } into jl
                                                 from l in jl.DefaultIfEmpty()
                                                 where l != null && (s.Quantity ?? 0) < (l.MinThreshold ?? 0)
                                                 select s.Id)
@@ -228,7 +230,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
         {
             try
             {
-                var scope = await ResolveScopeAsync(ct);
+                await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                var scope = await ResolveScopeAsync(db, ct);
                 if (!scope.AccessibleBranchIds.Any())
                     return ApiResult<List<AnomalyDto>>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
 
@@ -237,8 +240,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 var thirtyDaysAgo = now.AddDays(-30);
 
                 // Son 30 günlük günlük satış verileri
-                var dailySales = await (from d in _db.SaleDetails.AsNoTracking()
-                                       join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                var dailySales = await (from d in db.SaleDetails.AsNoTracking()
+                                       join s in db.Sales.AsNoTracking() on d.SaleId equals s.Id
                                        where s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value)
                                        let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
                                        where created >= thirtyDaysAgo && created <= now
@@ -298,9 +301,9 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 }
 
                 // Stok anomali tespiti
-                var criticalStocks = await (from s in _db.Stocks.AsNoTracking()
+                var criticalStocks = await (from s in db.Stocks.AsNoTracking()
                                            where s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value)
-                                           join l in _db.Limits.AsNoTracking() on new { s.BranchId, s.ProductVariantId } equals new { BranchId = l.BranchId, ProductVariantId = l.ProductVariantId } into jl
+                                           join l in db.Limits.AsNoTracking() on new { s.BranchId, s.ProductVariantId } equals new { BranchId = l.BranchId, ProductVariantId = l.ProductVariantId } into jl
                                            from l in jl.DefaultIfEmpty()
                                            where l != null && (s.Quantity ?? 0) < (l.MinThreshold ?? 0)
                                            select new { s.Quantity, l.MinThreshold })
@@ -353,7 +356,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
         {
             try
             {
-                var scope = await ResolveScopeAsync(ct);
+                await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                var scope = await ResolveScopeAsync(db, ct);
                 if (!scope.AccessibleBranchIds.Any())
                     return ApiResult<MonthlyTargetDto>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
 
@@ -362,8 +366,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 var monthEnd = monthStart.AddMonths(1).AddTicks(-1);
 
                 // Mevcut ay satış toplamı
-                var currentAmount = await (from d in _db.SaleDetails.AsNoTracking()
-                                          join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                var currentAmount = await (from d in db.SaleDetails.AsNoTracking()
+                                          join s in db.Sales.AsNoTracking() on d.SaleId equals s.Id
                                           where s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value)
                                           let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
                                           where created >= monthStart && created <= monthEnd
@@ -374,7 +378,7 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 decimal targetAmount = 100000m; // Default değer
                 if (scope.StoreId.HasValue)
                 {
-                    var monthlyTarget = await _db.MonthlyTargets.AsNoTracking()
+                    var monthlyTarget = await db.MonthlyTargets.AsNoTracking()
                         .Where(mt => mt.StoreId == scope.StoreId.Value 
                                   && mt.Year == now.Year 
                                   && mt.Month == now.Month
@@ -423,7 +427,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
         {
             try
             {
-                var scope = await ResolveScopeAsync(ct);
+                await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                var scope = await ResolveScopeAsync(db, ct);
                 if (!scope.AccessibleBranchIds.Any())
                     return ApiResult<List<ReminderDto>>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
 
@@ -433,10 +438,10 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 var sevenDaysAgo = now.AddDays(-7);
 
                 // Kritik stok kontrolü
-                var criticalStocks = await (from s in _db.Stocks.AsNoTracking()
+                var criticalStocks = await (from s in db.Stocks.AsNoTracking()
                                            where s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value)
-                                           join pv in _db.ProductVariants.AsNoTracking() on s.ProductVariantId equals pv.Id
-                                           join l in _db.Limits.AsNoTracking() on new { s.BranchId, s.ProductVariantId } equals new { BranchId = l.BranchId, ProductVariantId = l.ProductVariantId } into jl
+                                           join pv in db.ProductVariants.AsNoTracking() on s.ProductVariantId equals pv.Id
+                                           join l in db.Limits.AsNoTracking() on new { s.BranchId, s.ProductVariantId } equals new { BranchId = l.BranchId, ProductVariantId = l.ProductVariantId } into jl
                                            from l in jl.DefaultIfEmpty()
                                            where l != null && (s.Quantity ?? 0) < (l.MinThreshold ?? 0)
                                            select new { pv.Name, s.Quantity, s.ProductVariantId, l.MinThreshold })
@@ -445,12 +450,12 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 foreach (var cs in criticalStocks)
                 {
                     // Son 7 günlük ortalama günlük satış hızı
-                    var dailySales = await (from d in _db.SaleDetails.AsNoTracking()
-                                           join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                    var dailySales = await (from d in db.SaleDetails.AsNoTracking()
+                                           join s in db.Sales.AsNoTracking() on d.SaleId equals s.Id
                                            where s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value)
                                            let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
                                            where created >= sevenDaysAgo && created <= now
-                                           join st in _db.Stocks.AsNoTracking() on d.StockId equals st.Id
+                                           join st in db.Stocks.AsNoTracking() on d.StockId equals st.Id
                                            where st.ProductVariantId == cs.ProductVariantId
                                            select d.Quantity ?? 0)
                         .SumAsync(ct);
@@ -479,11 +484,11 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 }
 
                 // Uzun süre satılmayan ürünler
-                var unsoldProducts = await (from pv in _db.ProductVariants.AsNoTracking()
+                var unsoldProducts = await (from pv in db.ProductVariants.AsNoTracking()
                                            where !pv.IsDeleted
-                                           let lastSale = (from d in _db.SaleDetails.AsNoTracking()
-                                                          join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
-                                                          join st in _db.Stocks.AsNoTracking() on d.StockId equals st.Id
+                                           let lastSale = (from d in db.SaleDetails.AsNoTracking()
+                                                          join s in db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                                                          join st in db.Stocks.AsNoTracking() on d.StockId equals st.Id
                                                           where st.ProductVariantId == pv.Id
                                                           let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
                                                           orderby created descending
@@ -528,7 +533,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
         {
             try
             {
-                var scope = await ResolveScopeAsync(ct);
+                await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                var scope = await ResolveScopeAsync(db, ct);
                 if (!scope.AccessibleBranchIds.Any())
                     return ApiResult<List<TopProductDto>>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
 
@@ -548,14 +554,14 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                         break;
                 }
 
-                var topProducts = await (from d in _db.SaleDetails.AsNoTracking()
-                                        join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                var topProducts = await (from d in db.SaleDetails.AsNoTracking()
+                                        join s in db.Sales.AsNoTracking() on d.SaleId equals s.Id
                                         where s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value)
                                         let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
                                         where created >= periodStart && created <= now
-                                        join st in _db.Stocks.AsNoTracking() on d.StockId equals st.Id into js
+                                        join st in db.Stocks.AsNoTracking() on d.StockId equals st.Id into js
                                         from st in js.DefaultIfEmpty()
-                                        join pv in _db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id into jpv
+                                        join pv in db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id into jpv
                                         from pv in jpv.DefaultIfEmpty()
                                         group d by new
                                         {
@@ -584,7 +590,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
         {
             try
             {
-                var scope = await ResolveScopeAsync(ct);
+                await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                var scope = await ResolveScopeAsync(db, ct);
                 if (!scope.AccessibleBranchIds.Any())
                     return ApiResult<WorkloadEstimateDto>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
 
@@ -592,7 +599,7 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 var thirtyDaysAgo = now.AddDays(-30);
 
                 // Son 30 günlük günlük işlem sayıları
-                var dailyTransactions = await (from s in _db.Sales.AsNoTracking()
+                var dailyTransactions = await (from s in db.Sales.AsNoTracking()
                                              where s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value)
                                              let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
                                              where created >= thirtyDaysAgo && created <= now
@@ -601,7 +608,7 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                                              select new { Day = g.Key, Count = g.Count() })
                     .ToListAsync(ct);
 
-                var dailyPurchases = await (from p in _db.Purchases.AsNoTracking()
+                var dailyPurchases = await (from p in db.Purchases.AsNoTracking()
                                            where p.BranchId != null && scope.AccessibleBranchIds.Contains(p.BranchId.Value)
                                            let created = p.CreatedAt ?? p.UpdatedAt ?? DateTime.MinValue
                                            where created >= thirtyDaysAgo && created <= now
@@ -671,7 +678,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
         {
             try
             {
-                var scope = await ResolveScopeAsync(ct);
+                await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                var scope = await ResolveScopeAsync(db, ct);
                 if (!scope.AccessibleBranchIds.Any())
                     return ApiResult<BranchComparisonDto>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
 
@@ -683,7 +691,7 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
 
                 foreach (var branchId in scope.AccessibleBranchIds)
                 {
-                    var branch = await _db.Branches.AsNoTracking()
+                    var branch = await db.Branches.AsNoTracking()
                         .Where(b => b.Id == branchId)
                         .Select(b => b.Name)
                         .FirstOrDefaultAsync(ct);
@@ -691,8 +699,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                     if (string.IsNullOrEmpty(branch)) continue;
 
                     // Satış toplamı (son 7 gün)
-                    var totalSales = await (from d in _db.SaleDetails.AsNoTracking()
-                                           join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                    var totalSales = await (from d in db.SaleDetails.AsNoTracking()
+                                           join s in db.Sales.AsNoTracking() on d.SaleId equals s.Id
                                            where s.BranchId == branchId
                                            let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
                                            where created >= last7Days && created <= now
@@ -700,8 +708,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                         .SumAsync(ct);
 
                     // Alış maliyeti (son 7 gün)
-                    var totalCost = await (from d in _db.PurchaseDetails.AsNoTracking()
-                                          join p in _db.Purchases.AsNoTracking() on d.PurchaseId equals p.Id
+                    var totalCost = await (from d in db.PurchaseDetails.AsNoTracking()
+                                          join p in db.Purchases.AsNoTracking() on d.PurchaseId equals p.Id
                                           where p.BranchId == branchId
                                           let created = p.CreatedAt ?? p.UpdatedAt ?? DateTime.MinValue
                                           where created >= last7Days && created <= now
@@ -711,20 +719,20 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                     var totalProfit = totalSales - totalCost;
 
                     // Fiş sayısı
-                    var receiptCount = await _db.Sales.AsNoTracking()
+                    var receiptCount = await db.Sales.AsNoTracking()
                         .Where(s => s.BranchId == branchId)
                         .CountAsync(ct);
 
                     // POS oranı
-                    var totalPayments = await (from sp in _db.SalePayments.AsNoTracking()
-                                              join s in _db.Sales.AsNoTracking() on sp.SaleId equals s.Id
+                    var totalPayments = await (from sp in db.SalePayments.AsNoTracking()
+                                              join s in db.Sales.AsNoTracking() on sp.SaleId equals s.Id
                                               where s.BranchId == branchId
                                               select sp.Amount)
                         .SumAsync(ct);
 
-                    var posPayments = await (from sp in _db.SalePayments.AsNoTracking()
-                                            join s in _db.Sales.AsNoTracking() on sp.SaleId equals s.Id
-                                            join pm in _db.PaymentMethods.AsNoTracking() on sp.PaymentMethodId equals pm.Id
+                    var posPayments = await (from sp in db.SalePayments.AsNoTracking()
+                                            join s in db.Sales.AsNoTracking() on sp.SaleId equals s.Id
+                                            join pm in db.PaymentMethods.AsNoTracking() on sp.PaymentMethodId equals pm.Id
                                             where s.BranchId == branchId && pm.Name != null && (pm.Name.Contains("Kart") || pm.Name.Contains("POS") || pm.Name.Contains("Kredi"))
                                             select sp.Amount)
                         .SumAsync(ct);
@@ -738,25 +746,25 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                     posPercentage = Math.Round(posPercentage, 2);
 
                     // Kritik stok sayısı
-                    var criticalStockCount = await (from s in _db.Stocks.AsNoTracking()
+                    var criticalStockCount = await (from s in db.Stocks.AsNoTracking()
                                                    where s.BranchId == branchId
-                                                   join l in _db.Limits.AsNoTracking() on new { s.BranchId, s.ProductVariantId } equals new { BranchId = l.BranchId, ProductVariantId = l.ProductVariantId } into jl
+                                                   join l in db.Limits.AsNoTracking() on new { s.BranchId, s.ProductVariantId } equals new { BranchId = l.BranchId, ProductVariantId = l.ProductVariantId } into jl
                                                    from l in jl.DefaultIfEmpty()
                                                    where l != null && (s.Quantity ?? 0) < (l.MinThreshold ?? 0)
                                                    select s.Id)
                         .CountAsync(ct);
 
                     // Trend (son 7 gün vs önceki 7 gün)
-                    var last7DaysSales = await (from d in _db.SaleDetails.AsNoTracking()
-                                               join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                    var last7DaysSales = await (from d in db.SaleDetails.AsNoTracking()
+                                               join s in db.Sales.AsNoTracking() on d.SaleId equals s.Id
                                                where s.BranchId == branchId
                                                let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
                                                where created >= last7Days && created <= now
                                                select (d.Quantity ?? 0) * (d.SoldPrice ?? 0m))
                         .SumAsync(ct);
 
-                    var previous7DaysSales = await (from d in _db.SaleDetails.AsNoTracking()
-                                                   join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                    var previous7DaysSales = await (from d in db.SaleDetails.AsNoTracking()
+                                                   join s in db.Sales.AsNoTracking() on d.SaleId equals s.Id
                                                    where s.BranchId == branchId
                                                    let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
                                                    where created >= previous7Days && created < last7Days
@@ -807,7 +815,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
         {
             try
             {
-                var scope = await ResolveScopeAsync(ct);
+                await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                var scope = await ResolveScopeAsync(db, ct);
                 if (!scope.AccessibleBranchIds.Any())
                     return ApiResult<ProfitLossDto>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
 
@@ -842,8 +851,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 }
 
                 // Satış verileri - önce memory'ye çek, sonra grupla
-                var salesRaw = await (from d in _db.SaleDetails.AsNoTracking()
-                                     join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                var salesRaw = await (from d in db.SaleDetails.AsNoTracking()
+                                     join s in db.Sales.AsNoTracking() on d.SaleId equals s.Id
                                      where s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value)
                                      let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
                                      where created >= periodStart && created <= now
@@ -865,8 +874,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                     .ToList();
 
                 // Alış maliyeti verileri - önce memory'ye çek, sonra grupla
-                var costRaw = await (from d in _db.PurchaseDetails.AsNoTracking()
-                                     join p in _db.Purchases.AsNoTracking() on d.PurchaseId equals p.Id
+                var costRaw = await (from d in db.PurchaseDetails.AsNoTracking()
+                                     join p in db.Purchases.AsNoTracking() on d.PurchaseId equals p.Id
                                      where p.BranchId != null && scope.AccessibleBranchIds.Contains(p.BranchId.Value)
                                      let created = p.CreatedAt ?? p.UpdatedAt ?? DateTime.MinValue
                                      where created >= periodStart && created <= now
@@ -977,10 +986,10 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
         /// <summary>
         /// Kullanıcı bilgisi olmadan tüm şubeler için scope oluşturur (background service için)
         /// </summary>
-        private async Task<ReportScope> ResolveScopeForBackgroundServiceAsync(CancellationToken ct)
+        private async Task<ReportScope> ResolveScopeForBackgroundServiceAsync(AppDbContext db, CancellationToken ct)
         {
             // Background service için tüm aktif şubeleri al (owner gibi davran)
-            var branchIds = await _db.Branches.AsNoTracking()
+            var branchIds = await db.Branches.AsNoTracking()
                 .Where(b => !b.IsDeleted)
                 .Select(b => b.Id)
                 .ToListAsync(ct);
@@ -995,12 +1004,12 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
             };
         }
 
-        private async Task<ReportScope> ResolveScopeAsync(CancellationToken ct)
+        private async Task<ReportScope> ResolveScopeAsync(AppDbContext db, CancellationToken ct)
         {
             if (!_currentUser.IsAuthenticated || !_currentUser.UserId.HasValue)
                 throw new InvalidOperationException("Kullanıcı kimliği doğrulanamadı.");
 
-            var user = await _db.Users.AsNoTracking()
+            var user = await db.Users.AsNoTracking()
                 .Include(u => u.Branch)
                 .ThenInclude(b => b.Store)
                 .Include(u => u.Role)
@@ -1016,14 +1025,14 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
             {
                 if (user.Branch?.StoreId != null)
                 {
-                    branchIds = await _db.Branches.AsNoTracking()
+                    branchIds = await db.Branches.AsNoTracking()
                         .Where(b => b.StoreId == user.Branch.StoreId && !b.IsDeleted)
                         .Select(b => b.Id)
                         .ToListAsync(ct);
                 }
                 else
                 {
-                    branchIds = await _db.Branches.AsNoTracking()
+                    branchIds = await db.Branches.AsNoTracking()
                         .Where(b => !b.IsDeleted)
                         .Select(b => b.Id)
                         .ToListAsync(ct);
