@@ -1,5 +1,10 @@
 # Service Logic Deep Dive
 
+## Last Updated (UTC)
+- 2026-01-27T20:43:46Z
+- QR payload kuralı "publicCode only" olarak netleştirildi.
+- Resolve endpoint ayrımı ve QrCode alan notları güncellendi.
+
 Bu doküman, `KuyumStokApi.Infrastructure/Services/**` ve destekleyici katmanlardaki davranışı kod tabanlı olarak açıklar. Her iddia doğrudan koddan çıkarılmıştır; belirsiz alanlar “Unknown” olarak işaretlenmiştir.
 
 ## 1) Service Inventory (Index)
@@ -19,7 +24,9 @@ Bu doküman, `KuyumStokApi.Infrastructure/Services/**` ve destekleyici katmanlar
 | `ProductCategoryService` | `IProductCategoryService` | `KuyumStokApi.Infrastructure/Services/ProductCategoryService/ProductCategoryService.cs` | Ürün kategorisi CRUD + uniqueness | `AppDbContext` |
 | `ProductTypeService` | `IProductTypeService` | `KuyumStokApi.Infrastructure/Services/ProductTypService/ProductTypeService.cs` | Ürün türü CRUD + child guard | `AppDbContext` |
 | `ProductVariantService` | `IProductVariantService` | `KuyumStokApi.Infrastructure/Services/ProductVariantService/ProductVariantService.cs` | Varyant CRUD + unique kombinasyon | `AppDbContext` |
-| `StocksService` | `IStocksService` | `KuyumStokApi.Infrastructure/Services/StocksService/StocksService.cs` | Stok listeleme (direct rows), upsert (branch+variant), QR | `AppDbContext`, `ICurrentUserContext`, `QrCodeOptions` |
+| `StocksService` | `IStocksService` | `KuyumStokApi.Infrastructure/Services/StocksService/StocksService.cs` | Stok listeleme, CRUD, publicCode + QR | `AppDbContext`, `ICurrentUserContext`, `IOptions<QrCodeOptions>`, `IPublicCodeService`, `IQrCodeService`, `ILogger` |
+| `PublicCodeService` | `IPublicCodeService` | `KuyumStokApi.Infrastructure/Services/PublicCodeService/PublicCodeService.cs` | PublicCode uretim/normalize/validasyon | N/A |
+| `QrCodeService` | `IQrCodeService` | `KuyumStokApi.Infrastructure/QrCode/QrCodeService.cs` | QR PNG Base64 uretimi | `IOptions<QrCodeOptions>` |
 | `PurchasesService` | `IPurchasesService` | `KuyumStokApi.Infrastructure/Services/PurchasesService/PurchasesService.cs` | Alış fişi + stok artırma (TotalWeightGram) + lifecycle | `AppDbContext` |
 | `SalesService` | `ISalesService` | `KuyumStokApi.Infrastructure/Services/SalesService/SalesService.cs` | Birleşik fiş (satış+alış), stok düşme/ekleme (TotalWeightGram), ödeme | `AppDbContext`, `ICurrentUserContext`, `IStocksService` |
 | `ReportsService` | `IReportsService` | `KuyumStokApi.Infrastructure/Services/ReportsService/ReportsService.cs` | Raporlar + rol/şube scope | `AppDbContext`, `ICurrentUserContext` |
@@ -42,7 +49,12 @@ Bu doküman, `KuyumStokApi.Infrastructure/Services/**` ve destekleyici katmanlar
 |---|---|---|---|
 | `GET /api/Stocks` | `StocksController.GetPaged` | Authorize | stok listesi (direct rows) |
 | `GET /api/Stocks/variant/{variantId}/detail` | `StocksController.GetVariantDetail` | Authorize | mağaza içi şube toplamlari |
+| `GET /api/Stocks/{id}` | `StocksController.GetById` | Authorize | stok detay (GUID) |
+| `GET /api/Stocks/by-barcode/{barcode}` | `StocksController.GetByBarcode` | Authorize | barkod ile stok |
+| `GET /api/Stocks/by-code/{code}` | `StocksController.GetByPublicCode` | Authorize | publicCode ile stok |
 | `POST /api/Stocks` | `StocksController.Create` | Authorize | stok upsert |
+| `POST /api/Stocks/backfill-public-codes` | `StocksController.BackfillPublicCodes` | Authorize | eksik publicCode backfill |
+| `GET /r/{code}` | `ResolveController.Resolve` | AllowAnonymous | publicCode resolve -> redirect |
 | `POST /api/Sales` | `SalesController.Create` | Authorize | birleşik fiş (satış+alış) |
 | `GET /api/Sales` | `SalesController.GetPaged` | Authorize | satış kalem listesi |
 | `GET /api/Sales/{id}` | `SalesController.GetById` | Authorize | satış kalem detayı |
@@ -225,23 +237,37 @@ Kategori CRUD + isim benzersizliği.
 Stok listeleme (direct rows), stok CRUD, QR üretimi.
 
 **Behavior highlights**
-- `GetPagedAsync`: `Stocks` tablosundan direkt okur, **GroupBy yoktur**; `StockDto.Id` gerçek `Stocks.Id` ve `StockDto.TotalWeight` `Stocks.TotalWeightGram` üzerinden gelir.  
+- `GetPagedAsync`: `Stocks` tablosundan direkt okur, **GroupBy yoktur**; `StockDto.Id` = `Stocks.Id`, `StockDto.TotalWeight` = `Stocks.TotalWeightGram`.  
   - `StocksService.GetPagedAsync`
-- `GetVariantDetailInStoreAsync`: mağaza içi şube toplamlarını `Stocks.TotalWeightGram` üzerinden toplar.  
+- `GetPagedAsync` filtreleri: `Query` barkod/QR/publicCode (normalize + ILIKE) ve varyant alanlarini tarar; `GramMin/Max`, `UpdatedFrom/To`, `ProductTypeId`, `ProductVariantId` uygulanir.  
+  - `StocksService.GetPagedAsync`
+- `GetVariantDetailInStoreAsync`: magazadaki tum subelerde toplam adet ve toplam agirligi toplar (`Stocks.TotalWeightGram`).  
   - `StocksService.GetVariantDetailInStoreAsync`
-- `CreateAsync`: upsert **yalnızca `(ProductVariantId, BranchId)`** ile yapılır.  
+- `GetByPublicCodeAsync`: `PublicCodeService.Normalize` + `IsValid` ile dogrular; eslesme yoksa 404.  
+  - `StocksService.GetByPublicCodeAsync`
+- `GetResolveRedirectUrlAsync`: public code dogrulanir; `FrontendBaseUrl` varsa `/stocks/{code}`, yoksa `/api/stocks/by-code/{code}` URL'i dondurur.  
+  - Resolve/redirect icindir; QR payload **degildir**.  
+  - `StocksService.GetResolveRedirectUrlAsync`
+- `CreateAsync`: upsert **yalnizca `(ProductVariantId, BranchId)`** ile yapilir; yeni kayitta her zaman `PublicCode` atanir.  
+  - `StocksService.CreateAsync`, `AllocatePublicCodeAsync`
+- `CreateAsync` validasyon: `Quantity > 0`, `TotalWeightGram > 0`; `TotalWeightGram <= 0` ise `Gram` yedeklenir.  
   - `StocksService.CreateAsync`
-- `CreateAsync` validasyon: `Quantity > 0`, `TotalWeightGram > 0`.  
-  - `StockCreateDto.TotalWeightGram` yoksa geçici uyumluluk için `StockCreateDto.Gram` (toplam gram) kullanılır.  
-  - `StocksService.CreateAsync`
-- `CreateAsync` stok artışı: `Quantity` ve `TotalWeightGram` eklenir; `PurchasePrice` varsa `CreatePurchaseRecordAsync` çalışır ve `PurchaseDetails.TotalWeightGram` set edilir.  
-  - `StocksService.CreateAsync`, `StocksService.CreatePurchaseRecordAsync`
-- `MapToDto`: `StockDto.TotalWeight` doğrudan `Stocks.TotalWeightGram` değeridir.  
+- `CreateAsync` QR: `GenerateQrCode=true` ise QR Base64 uretir; QR payload **yalnizca `publicCode`**'dur.  
+  - `StocksService.BuildQrCodeBase64`
+- QR PNG uretimi `QrCodeService` ile yapilir; ECC seviyesi ve hedef piksel boyutu `QrCodeOptions`'tan gelir.  
+  - `KuyumStokApi.Infrastructure/QrCode/QrCodeService.cs`
+- `BackfillPublicCodesAsync`: `PublicCode` NULL olan kayitlara kod atar; QR varsa yeniden uretir.  
+  - `StocksService.BackfillPublicCodesAsync`
+- `AllocatePublicCodeAsync`: max 10 denemede benzersiz kod uretir; DB'de ve `reserved` setinde cakisma kontrolu yapar.  
+  - `StocksService.AllocatePublicCodeAsync`
+- `MapToDto`: `TotalMilyem` ham milyem + iscilik olarak hesaplanir.  
   - `StocksService.MapToDto`
 
 **Invariants & gotchas**
-- `Stocks.Gram` sadece filtreleme ve DTO görünümü için kullanılır; toplam hesaplarda kullanılmaz.  
+- `Stocks.Gram` sadece filtreleme/DTO gorunumu icin kullanilir; toplamlar `TotalWeightGram` uzerinden hesaplanir.  
   - `StocksService.GetPagedAsync`, `StocksService.MapToDto`
+- `PublicCode` 10 karakterli Crockford Base32 olup `Normalize` ile aynilestirilir (`O->0`, `I/L->1`).  
+  - `PublicCodeService.Normalize`, `PublicCodeService.IsValid`
 
 ### 3.15 `PurchasesService`
 **Purpose**  
@@ -329,7 +355,8 @@ Moving average ve lineer regresyon ile iş yükü tahmini.
 - `StocksService.CreateAsync`:  
   - `(ProductVariantId, BranchId)` eşleşmesi ile upsert.  
   - `TotalWeightGram` toplam ağırlık olarak stokta artırılır.  
-  - `GenerateQrCode` true ise QR Base64 üretilir (`QrCodeOptions.BaseUrl/{StockId}`).
+  - `GenerateQrCode` true ise QR Base64 uretir; payload **yalnizca `publicCode`**'dur (URL degil).
+  - `StockDto.PublicCode` tarama sonucu payload degeridir; `StockDto.QrCode` bu payload'in Base64 PNG goruntusudur (URL icermez).
 
 ### 4.3 Sales: unified receipt flow
 - `SalesService.CreateUnifiedAsync`  
@@ -343,6 +370,11 @@ Moving average ve lineer regresyon ile iş yükü tahmini.
   - `LiveCountersUpdated`, `DailySummaryUpdated`, `AnomaliesUpdated`
 - **Event-based**: `AppDbContext.SaveChanges` → `DashboardNotificationService.NotifyDashboardChangesAsync` → ilgili event yayınları.
 
+### 4.5 Resolve: public code -> redirect
+- `ResolveController.Resolve` anonim erisimlidir; `GetResolveRedirectUrlAsync` ile URL uretir.  
+- `/r/{code}` resolve/redirect mekanizmasidir; **QR payload'i degildir**.  
+- `PublicCode` gecersizse 400, bulunamazsa 404, aksi halde `302` redirect dondurur.
+
 ## 5) Data mutation map
 
 | Flow | Entities/tables mutated | Trigger method | Notes |
@@ -352,6 +384,7 @@ Moving average ve lineer regresyon ile iş yükü tahmini.
 | Refresh | `RefreshTokens` | `AuthController.Refresh` | refresh rotation |
 | Logout | `InvalidatedTokens`, `RefreshTokens` | `AuthController.Logout` | JWT blacklist + revoke all |
 | Stock upsert | `Stocks`, `Purchases`, `PurchaseDetails`, `ProductLifecycles` | `StocksService.CreateAsync` | `Quantity` + `TotalWeightGram` artırılır |
+| PublicCode backfill | `Stocks` | `StocksService.BackfillPublicCodesAsync` | Eksik kodlar atanir, QR varsa yenilenir |
 | Purchase create | `Purchases`, `PurchaseDetails`, `Stocks`, `ProductLifecycles` | `PurchasesService.CreateAsync` | `TotalWeightGram` set edilir |
 | Sale (unified) | `Sales`, `SaleDetails`, `SalePayments`, `Stocks`, `Purchases`, `PurchaseDetails`, `ProductLifecycles` | `SalesService.CreateUnifiedAsync` | stok `Quantity` + `TotalWeightGram` güncellenir |
 | Bank CRUD | `Banks` | `BanksService.*` | soft/hard delete |

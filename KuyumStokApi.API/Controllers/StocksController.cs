@@ -1,4 +1,4 @@
-﻿using KuyumStokApi.Application.DTOs.Stocks;
+using KuyumStokApi.Application.DTOs.Stocks;
 using KuyumStokApi.Application.Interfaces.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -47,6 +47,15 @@ namespace KuyumStokApi.API.Controllers
             return StatusCode(r.StatusCode, r);
         }
 
+        /// <summary>Public code ile stok getirir.</summary>
+        [HttpGet("by-code/{code}")]
+        [Authorize]
+        public async Task<IActionResult> GetByPublicCode(string code, CancellationToken ct)
+        {
+            var r = await _svc.GetByPublicCodeAsync(code, ct);
+            return StatusCode(r.StatusCode, r);
+        }
+
         /// <summary>Yeni stok kaydı oluşturur.</summary>
         [HttpPost]
         [Authorize]
@@ -62,6 +71,15 @@ namespace KuyumStokApi.API.Controllers
         public async Task<IActionResult> Update(Guid id, [FromBody] StockUpdateDto dto, CancellationToken ct)
         {
             var r = await _svc.UpdateAsync(id, dto, ct);
+            return StatusCode(r.StatusCode, r);
+        }
+
+        /// <summary>Eksik public code değerlerini backfill eder.</summary>
+        [HttpPost("backfill-public-codes")]
+        [Authorize]
+        public async Task<IActionResult> BackfillPublicCodes([FromQuery] int limit = 500, CancellationToken ct = default)
+        {
+            var r = await _svc.BackfillPublicCodesAsync(limit, ct);
             return StatusCode(r.StatusCode, r);
         }
 

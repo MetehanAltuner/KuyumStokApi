@@ -537,6 +537,9 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.Barcode, "stocks_barcode_key").IsUnique();
             entity.HasIndex(e => new { e.BranchId, e.ProductVariantId }, "ux_stocks_branch_variant").IsUnique();
+            entity.HasIndex(e => e.PublicCode, "ux_stocks_public_code")
+                .IsUnique()
+                .HasFilter("public_code IS NOT NULL");
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.Barcode).HasColumnName("barcode");
@@ -552,6 +555,9 @@ public partial class AppDbContext : DbContext
                 .HasColumnName("workmanship_milyem")
                 .HasComment("İşçilik milyem değeri");
             entity.Property(e => e.ProductVariantId).HasColumnName("product_variant_id");
+            entity.Property(e => e.PublicCode)
+                .HasMaxLength(12)
+                .HasColumnName("public_code");
             entity.Property(e => e.QrCode).HasColumnName("qr_code");
             entity.Property(e => e.Quantity).HasColumnName("quantity");
             entity.Property(e => e.StoneType).HasColumnName("stone_type");

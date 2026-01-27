@@ -33,6 +33,7 @@ using KuyumStokApi.Infrastructure.Services.WorkloadEstimationService;
 using KuyumStokApi.Application.Hubs;
 using Microsoft.AspNetCore.SignalR;
 using KuyumStokApi.Infrastructure.QrCode;
+using KuyumStokApi.Infrastructure.Services.PublicCodeService;
 
 namespace KuyumStokApi.Infrastructure
 {
@@ -55,6 +56,10 @@ namespace KuyumStokApi.Infrastructure
                     .Bind(configuration.GetSection("QrCode"))
                     .ValidateDataAnnotations()
                     .Validate(o => !string.IsNullOrWhiteSpace(o.BaseUrl), "QrCode BaseUrl boş olamaz.")
+                    .Validate(o => QrCodeOptions.IsValidErrorCorrection(o.ErrorCorrection), "QrCode ErrorCorrection L/M/Q/H olmalıdır.")
+                    .Validate(o => o.TargetPixelSize > 0, "QrCode TargetPixelSize 0'dan büyük olmalıdır.")
+                    .Validate(o => o.MinPixelsPerModule > 0, "QrCode MinPixelsPerModule 0'dan büyük olmalıdır.")
+                    .Validate(o => o.MaxPixelsPerModule >= o.MinPixelsPerModule, "QrCode MaxPixelsPerModule MinPixelsPerModule'den küçük olamaz.")
                     .ValidateOnStart();
 
 
@@ -70,6 +75,8 @@ namespace KuyumStokApi.Infrastructure
             services.AddScoped<IProductTypeService, ProductTypeService>();
             services.AddScoped<IProductVariantService, ProductVariantService>();
             services.AddScoped<IStocksService, StocksService>();
+            services.AddScoped<IPublicCodeService, PublicCodeService>();
+            services.AddScoped<IQrCodeService, QrCodeService>();
             services.AddScoped<IBranchesService, BranchesService>();
             services.AddScoped<IStoresService, StoresService>();
             services.AddScoped<ICustomersService, CustomersService>();

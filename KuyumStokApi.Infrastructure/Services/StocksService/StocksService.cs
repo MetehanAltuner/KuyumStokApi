@@ -4,14 +4,12 @@ using KuyumStokApi.Application.Interfaces.Auth;
 using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Persistence.Contexts;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using System.Security.Cryptography;
-using System.Text.Json;
-using QRCoder;
 using Microsoft.Extensions.Options;
 using KuyumStokApi.Infrastructure.QrCode;
 
@@ -23,12 +21,24 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
         private readonly AppDbContext _db;
         private readonly ICurrentUserContext _user;
         private readonly QrCodeOptions _qrOptions;
+        private readonly IPublicCodeService _publicCodeService;
+        private readonly IQrCodeService _qrCodeService;
+        private readonly ILogger<StocksService> _logger;
 
-        public StocksService(AppDbContext db, ICurrentUserContext user, IOptions<QrCodeOptions> qrOptions)
+        public StocksService(
+            AppDbContext db,
+            ICurrentUserContext user,
+            IOptions<QrCodeOptions> qrOptions,
+            IPublicCodeService publicCodeService,
+            IQrCodeService qrCodeService,
+            ILogger<StocksService> logger)
         {
             _db = db;
             _user = user;
             _qrOptions = qrOptions.Value;
+            _publicCodeService = publicCodeService;
+            _qrCodeService = qrCodeService;
+            _logger = logger;
         }
 
         // -------- LİSTE: Aynı varyanta sahip stokları gruplayarak toplam adet ve ağırlık ile gösterir --------
@@ -59,9 +69,11 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             if (!string.IsNullOrWhiteSpace(filter.Query))
             {
                 var qstr = filter.Query.Trim();
+                var normalizedCode = _publicCodeService.Normalize(qstr);
                 baseQ = baseQ.Where(x =>
                     EF.Functions.ILike(x.s.Barcode, $"%{qstr}%") ||
                     EF.Functions.ILike(x.s.QrCode ?? "", $"%{qstr}%") ||
+                    (!string.IsNullOrEmpty(normalizedCode) && EF.Functions.ILike(x.s.PublicCode ?? "", $"%{normalizedCode}%")) ||
                     (x.v != null && (
                         EF.Functions.ILike(x.v.Name, $"%{qstr}%") ||
                         EF.Functions.ILike(x.v.Brand ?? "", $"%{qstr}%") ||
@@ -102,6 +114,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                     x.s.Quantity,
                     x.s.Barcode,
                     x.s.QrCode,
+                    x.s.PublicCode,
                     x.s.CreatedAt,
                     x.s.UpdatedAt,
                     x.s.TotalWeightGram,
@@ -133,6 +146,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                     Quantity = x.Quantity,
                     Barcode = x.Barcode ?? string.Empty,
                     QrCode = x.QrCode,
+                    PublicCode = x.PublicCode,
                     CreatedAt = x.CreatedAt,
                     UpdatedAt = x.UpdatedAt,
                     TotalWeight = x.TotalWeightGram,
@@ -244,6 +258,46 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             return await MapToDto(s, ct);
         }
 
+        public async Task<ApiResult<StockDto>> GetByPublicCodeAsync(string code, CancellationToken ct = default)
+        {
+            var normalized = _publicCodeService.Normalize(code);
+            if (!_publicCodeService.IsValid(normalized))
+                return ApiResult<StockDto>.Fail("Geçersiz public code.", statusCode: 400);
+
+            var s = await _db.Stocks.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.PublicCode == normalized, ct);
+
+            if (s is null)
+                return ApiResult<StockDto>.Fail("Stok bulunamadı", statusCode: 404);
+
+            return await MapToDto(s, ct);
+        }
+
+        public async Task<ApiResult<string>> GetResolveRedirectUrlAsync(string code, CancellationToken ct = default)
+        {
+            var normalized = _publicCodeService.Normalize(code);
+            if (!_publicCodeService.IsValid(normalized))
+                return ApiResult<string>.Fail("Geçersiz public code.", statusCode: 400);
+
+            var s = await _db.Stocks.AsNoTracking()
+                .Where(x => x.PublicCode == normalized)
+                .Select(x => new { x.PublicCode })
+                .FirstOrDefaultAsync(ct);
+
+            if (s is null || string.IsNullOrWhiteSpace(s.PublicCode))
+                return ApiResult<string>.Fail("Stok bulunamadı", statusCode: 404);
+
+            var baseUrl = !string.IsNullOrWhiteSpace(_qrOptions.FrontendBaseUrl)
+                ? _qrOptions.FrontendBaseUrl.TrimEnd('/')
+                : _qrOptions.BaseUrl.TrimEnd('/');
+
+            var redirectUrl = !string.IsNullOrWhiteSpace(_qrOptions.FrontendBaseUrl)
+                ? $"{baseUrl}/stocks/{s.PublicCode}"
+                : $"{baseUrl}/api/stocks/by-code/{s.PublicCode}";
+
+            return ApiResult<string>.Ok(redirectUrl, "Yönlendirme URL oluşturuldu", 200);
+        }
+
         /// <summary>
         /// Stok oluşturur veya merge eder.
         /// Eğer aynı ProductVariantId + BranchId + fiziksel özellikler varsa, mevcut quantity'i artırır.
@@ -291,9 +345,12 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                     match.TotalWeightGram += effectiveTotalWeightGram;
                     match.UpdatedAt = DateTime.UtcNow;
 
-                    if (dto.GenerateQrCode && string.IsNullOrWhiteSpace(match.QrCode))
+                    if (string.IsNullOrWhiteSpace(match.PublicCode))
+                        match.PublicCode = await AllocatePublicCodeAsync(null, ct);
+
+                    if (dto.GenerateQrCode)
                     {
-                        match.QrCode = BuildQrPayload(match);
+                        match.QrCode = BuildQrCodeBase64(match.PublicCode);
                     }
                     else if (!string.IsNullOrWhiteSpace(dto.QrCode))
                     {
@@ -335,6 +392,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                 }
 
                 var now = DateTime.UtcNow;
+                var publicCode = await AllocatePublicCodeAsync(null, ct);
 
                 var entity = new Domain.Entities.Stocks
                 {
@@ -343,6 +401,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                     Quantity = dto.Quantity,
                     TotalWeightGram = effectiveTotalWeightGram,
                     Barcode = barcode,
+                    PublicCode = publicCode,
                     QrCode = dto.GenerateQrCode && string.IsNullOrWhiteSpace(dto.QrCode)
                         ? null
                         : dto.QrCode,
@@ -362,7 +421,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
 
                 if (dto.GenerateQrCode)
                 {
-                    entity.QrCode = BuildQrPayload(entity);
+                    entity.QrCode = BuildQrCodeBase64(entity.PublicCode);
                     entity.UpdatedAt = DateTime.UtcNow;
                     await _db.SaveChangesAsync(ct);
                 }
@@ -477,6 +536,48 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             return ApiResult<bool>.Ok(true, "Güncellendi", 200);
         }
 
+        public async Task<ApiResult<StockPublicCodeBackfillResultDto>> BackfillPublicCodesAsync(int limit = 500, CancellationToken ct = default)
+        {
+            if (limit <= 0)
+                limit = 500;
+
+            var targets = await _db.Stocks
+                .Where(s => s.PublicCode == null)
+                .OrderBy(s => s.CreatedAt ?? DateTime.MinValue)
+                .Take(limit)
+                .ToListAsync(ct);
+
+            if (targets.Count == 0)
+            {
+                var remaining = await _db.Stocks.CountAsync(s => s.PublicCode == null, ct);
+                return ApiResult<StockPublicCodeBackfillResultDto>.Ok(
+                    new StockPublicCodeBackfillResultDto { UpdatedCount = 0, RemainingCount = remaining },
+                    "Güncellenecek stok bulunamadı.", 200);
+            }
+
+            var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var updated = 0;
+            foreach (var stock in targets)
+            {
+                stock.PublicCode = await AllocatePublicCodeAsync(reserved, ct);
+
+                if (!string.IsNullOrWhiteSpace(stock.QrCode))
+                    stock.QrCode = BuildQrCodeBase64(stock.PublicCode);
+
+                stock.UpdatedAt = DateTime.UtcNow;
+                updated++;
+            }
+
+            await _db.SaveChangesAsync(ct);
+
+            var remainingCount = await _db.Stocks.CountAsync(s => s.PublicCode == null, ct);
+            _logger.LogInformation("PublicCode backfill tamamlandı. Updated={Updated}, Remaining={Remaining}", updated, remainingCount);
+
+            return ApiResult<StockPublicCodeBackfillResultDto>.Ok(
+                new StockPublicCodeBackfillResultDto { UpdatedCount = updated, RemainingCount = remainingCount },
+                "PublicCode backfill tamamlandı.", 200);
+        }
+
         public async Task<ApiResult<bool>> DeleteAsync(Guid id, CancellationToken ct = default)
         {
             var entity = await _db.Stocks.FirstOrDefaultAsync(x => x.Id == id, ct);
@@ -565,19 +666,38 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             return barcode;
         }
 
-        private string BuildQrPayload(Domain.Entities.Stocks entity)
+        private string BuildQrCodeBase64(string? publicCode)
         {
-            // QR kod içinde sadece URL olacak: {BaseUrl}{StockId}
-            var qrUrl = $"{_qrOptions.BaseUrl.TrimEnd('/')}/{entity.Id}";
-            
-            // QR kod görseli oluştur
-            using var qrGenerator = new QRCodeGenerator();
-            var qrCodeData = qrGenerator.CreateQrCode(qrUrl, QRCodeGenerator.ECCLevel.Q);
-            using var qrCode = new PngByteQRCode(qrCodeData);
-            var qrCodeBytes = qrCode.GetGraphic(20);
-            
-            // Base64 string olarak döndür
-            return Convert.ToBase64String(qrCodeBytes);
+            if (string.IsNullOrWhiteSpace(publicCode))
+                throw new InvalidOperationException("PublicCode boş olamaz.");
+
+            var payload = BuildQrPayload(publicCode);
+            return _qrCodeService.GenerateQrPngBase64(payload);
+        }
+
+        private string BuildQrPayload(string publicCode)
+        {
+            return publicCode;
+        }
+
+        private async Task<string> AllocatePublicCodeAsync(HashSet<string>? reservedCodes, CancellationToken ct)
+        {
+            const int maxAttempts = 10;
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                var code = _publicCodeService.GenerateStockPublicCode();
+                if (reservedCodes != null && reservedCodes.Contains(code))
+                    continue;
+
+                var exists = await _db.Stocks.AnyAsync(s => s.PublicCode == code, ct);
+                if (exists)
+                    continue;
+
+                reservedCodes?.Add(code);
+                return code;
+            }
+
+            throw new InvalidOperationException("Benzersiz public code üretilemedi.");
         }
 
         // ---- helpers ----
@@ -605,6 +725,7 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
                 Quantity = s.Quantity,
                 Barcode = s.Barcode,
                 QrCode = s.QrCode,
+                PublicCode = s.PublicCode,
                 CreatedAt = s.CreatedAt,
                 UpdatedAt = s.UpdatedAt,
                 TotalWeight = s.TotalWeightGram,

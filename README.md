@@ -1,3 +1,10 @@
+## QR Public Code (1cm etiket)
+
+- QR payload: `{BaseUrl}/r/{PublicCode}`
+- Yeni endpoint’ler: `GET /api/stocks/by-code/{code}`, `POST /api/stocks/backfill-public-codes`, `GET /r/{code}`
+- QR ayarları: `QrCode.BaseUrl`, `ResolvePath`, `FrontendBaseUrl`, `ErrorCorrection`, `TargetPixelSize`, `MinPixelsPerModule`, `MaxPixelsPerModule`
+- `StockDto` artık `publicCode` döndürür
+
 {
   "branchId": 1,
   "userId": 1,

@@ -13,6 +13,7 @@ namespace KuyumStokApi.Application.DTOs.Stocks
         public int? Quantity { get; set; }
         public string Barcode { get; set; } = null!;
         public string? QrCode { get; set; }
+        public string? PublicCode { get; set; }
         public DateTime? CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
 
@@ -114,5 +115,12 @@ namespace KuyumStokApi.Application.DTOs.Stocks
         public string? Brand { get; set; }
         public int TotalSoldQty { get; set; }
         public bool IsFavorite { get; set; }
+    }
+
+    /// <summary>Public code backfill sonucu.</summary>
+    public sealed class StockPublicCodeBackfillResultDto
+    {
+        public int UpdatedCount { get; set; }
+        public int RemainingCount { get; set; }
     }
 }

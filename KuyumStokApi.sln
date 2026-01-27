@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.10.35027.167
@@ -12,6 +12,8 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "KuyumStokApi.Domain", "KuyumStokApi.Domain\KuyumStokApi.Domain.csproj", "{595E3F40-AB05-4BC3-9796-F89C8395DB24}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KuyumStokApi.Persistence", "KuyumStokApi.Persistence\KuyumStokApi.Persistence.csproj", "{8CE1851B-4C29-425E-BC68-9C2B934A5126}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "KuyumStokApi.Tests", "KuyumStokApi.Tests\KuyumStokApi.Tests.csproj", "{A2F7A5D6-7F7B-4A9D-8A1D-1C7C1C1EDC01}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -39,6 +41,10 @@ Global
 		{8CE1851B-4C29-425E-BC68-9C2B934A5126}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8CE1851B-4C29-425E-BC68-9C2B934A5126}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8CE1851B-4C29-425E-BC68-9C2B934A5126}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A2F7A5D6-7F7B-4A9D-8A1D-1C7C1C1EDC01}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A2F7A5D6-7F7B-4A9D-8A1D-1C7C1C1EDC01}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A2F7A5D6-7F7B-4A9D-8A1D-1C7C1C1EDC01}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A2F7A5D6-7F7B-4A9D-8A1D-1C7C1C1EDC01}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

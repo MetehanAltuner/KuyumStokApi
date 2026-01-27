@@ -1,4 +1,4 @@
-﻿using KuyumStokApi.Application.Common;
+using KuyumStokApi.Application.Common;
 using KuyumStokApi.Application.DTOs.Stocks;
 using System;
 using System.Collections.Generic;
@@ -20,8 +20,11 @@ namespace KuyumStokApi.Application.Interfaces.Services
         // Mevcut CRUD imzaları
         Task<ApiResult<StockDto>> GetByIdAsync(Guid id, CancellationToken ct = default);
         Task<ApiResult<StockDto>> GetByBarcodeAsync(string barcode, CancellationToken ct = default);
+        Task<ApiResult<StockDto>> GetByPublicCodeAsync(string code, CancellationToken ct = default);
+        Task<ApiResult<string>> GetResolveRedirectUrlAsync(string code, CancellationToken ct = default);
         Task<ApiResult<StockDto>> CreateAsync(StockCreateDto dto, CancellationToken ct = default, bool skipPurchaseCreation = false);
         Task<ApiResult<bool>> UpdateAsync(Guid id, StockUpdateDto dto, CancellationToken ct = default);
+        Task<ApiResult<StockPublicCodeBackfillResultDto>> BackfillPublicCodesAsync(int limit = 500, CancellationToken ct = default);
         Task<ApiResult<bool>> DeleteAsync(Guid id, CancellationToken ct = default);
         Task<ApiResult<bool>> HardDeleteAsync(Guid id, CancellationToken ct = default);
 

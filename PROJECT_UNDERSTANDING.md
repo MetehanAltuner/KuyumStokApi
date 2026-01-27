@@ -1,5 +1,9 @@
 # Project Understanding Document
 
+## Last Updated (UTC)
+- 2026-01-27T20:54:42Z
+- Aligned QR payload definition to PublicCode-only (no URL).
+
 ## 1) Quick Repo Scan (top-level map + tech stack)
 
 **Top-level map**
@@ -95,6 +99,8 @@ Example:
   - `KuyumStokApi.Persistence/Contexts/AppDbContext.cs` (`AppDbContext.OnModelCreating`)
 - `Stocks.TotalWeightGram` stores **total weight on hand** (not unit weight).  
   - `KuyumStokApi.Domain/Entities/Stocks.cs`
+- `Stocks.PublicCode` is an optional public identifier; a unique index enforces uniqueness when present.  
+  - `KuyumStokApi.Persistence/Contexts/AppDbContext.cs`, `KuyumStokApi.Persistence/Migrations/20260127120000_AddStockPublicCode.cs`
 - `SaleDetails.TotalWeightGram` and `PurchaseDetails.TotalWeightGram` store **line total weight**.  
   - `KuyumStokApi.Domain/Entities/SaleDetails.cs`  
   - `KuyumStokApi.Domain/Entities/PurchaseDetails.cs`
@@ -191,11 +197,14 @@ Example:
 | `GET /api/Stocks/variant/{variantId}/detail` | `StocksController.GetVariantDetail` | Authorize | variant detail across store branches |
 | `GET /api/Stocks/{id}` | `StocksController.GetById` | Authorize | get stock by GUID |
 | `GET /api/Stocks/by-barcode/{barcode}` | `StocksController.GetByBarcode` | Authorize | get stock by barcode |
+| `GET /api/Stocks/by-code/{code}` | `StocksController.GetByPublicCode` | Authorize | get stock by public code |
 | `POST /api/Stocks` | `StocksController.Create` | Authorize | create/upsert stock |
 | `PUT /api/Stocks/{id}` | `StocksController.Update` | Authorize | update stock |
+| `POST /api/Stocks/backfill-public-codes` | `StocksController.BackfillPublicCodes` | Authorize | assign missing public codes |
 | `DELETE /api/Stocks/{id}` | `StocksController.Delete` | Authorize | soft delete |
 | `DELETE /api/Stocks/{id}/hard` | `StocksController.HardDelete` | Authorize | hard delete |
 | `GET /api/Stocks/favorites` | `StocksController.GetFavorites` | Authorize | top sold products |
+| `GET /r/{code}` | `ResolveController.Resolve` | AllowAnonymous | resolve public code -> redirect |
 | `POST /api/Purchases` | `PurchasesController.Create` | Authorize | create purchase receipt |
 | `GET /api/Purchases` | `PurchasesController.GetPaged` | Authorize | list purchases |
 | `GET /api/Purchases/{id}` | `PurchasesController.GetById` | Authorize | purchase detail |
@@ -322,8 +331,9 @@ Example:
   - `KuyumStokApi.API/appsettings.json`
 - `ConnectionStrings:DefaultConnection` (PostgreSQL).  
   - `KuyumStokApi.API/appsettings.json`
-- `QrCode:BaseUrl`.  
-  - `KuyumStokApi.API/appsettings.json`
+- `QrCode:BaseUrl`, `QrCode:ResolvePath`, `QrCode:FrontendBaseUrl`, `QrCode:ErrorCorrection`, `QrCode:TargetPixelSize`, `QrCode:MinPixelsPerModule`, `QrCode:MaxPixelsPerModule`.  
+  - Resolve/yonlendirme ve UI routing icin kullanilir; **QR payload'i degildir**.  
+  - `KuyumStokApi.API/appsettings.json`, `KuyumStokApi.Infrastructure/QrCode/QrCodeOptions.cs`
 
 ## 8) External Integrations (purpose, endpoints/topics, credentials, retries, key code locations)
 
@@ -338,9 +348,11 @@ Example:
 
 **QR Code generation**
 - Purpose: generate QR code image as Base64 for stock items.  
-  - `KuyumStokApi.Infrastructure/Services/StocksService/StocksService.cs`
-- Uses `QrCode:BaseUrl` to embed URL in QR payload.  
-  - `KuyumStokApi.Infrastructure/QrCode/QrCodeOptions.cs`, `appsettings.json`
+  - `KuyumStokApi.Infrastructure/Services/StocksService/StocksService.cs`, `KuyumStokApi.Infrastructure/QrCode/QrCodeService.cs`
+- QR payload = PublicCode only (raw short code string).  
+  - `/r/{code}` resolve/redirect ayri bir mekanizmadir; QR icerigine eklenmez.
+  - QR tarama sonucu frontend tarafinda link/yonlendirmeye cevrilir.
+- `StockDto.PublicCode` tarama sonucu payload degeridir; `StockDto.QrCode` bu payload'in Base64 PNG goruntusudur; URL embed edilmez.
 
 **ML (Microsoft.ML)**
 - Purpose: anomaly detection + workload estimation (internal computation).  
@@ -375,6 +387,7 @@ Example:
 | Build | `dotnet build KuyumStokApi.sln` |
 | Run API (dev) | `dotnet run --project KuyumStokApi.API/KuyumStokApi.API.csproj` |
 | Run with HTTPS profile | `dotnet run --project KuyumStokApi.API/KuyumStokApi.API.csproj --launch-profile https` |
+| Test | `dotnet test KuyumStokApi.Tests/KuyumStokApi.Tests.csproj` |
 | EF migration add | `dotnet ef migrations add <Name> --project KuyumStokApi.Persistence --startup-project KuyumStokApi.API` |
 | EF database update | `dotnet ef database update --project KuyumStokApi.Persistence --startup-project KuyumStokApi.API` |
 | Docker build | `docker build -t kuyumstokapi .` |
@@ -387,8 +400,10 @@ Example:
   - Unknown: inspect repository root for pipeline definitions if needed.
 
 **Tests**
-- No test projects found in this scan.  
-  - Unknown: add tests or check for hidden test repos.
+- Test projesi: `KuyumStokApi.Tests`  
+  - `PublicCodeServiceTests` (public code length/alfabe/normalize/validation)  
+  - `StocksServiceTests` (public code + QR payload/backfill)
+  - `KuyumStokApi.Tests/PublicCodeServiceTests.cs`, `KuyumStokApi.Tests/StocksServiceTests.cs`
 
 ## 12) How to Safely Change This Project (invariants, gotchas, what to regression test)
 
@@ -399,6 +414,10 @@ Example:
   - `KuyumStokApi.Persistence/Contexts/AppDbContext.Partials.cs`, `KuyumStokApi.Infrastructure/Services/DashboardService/DashboardNotificationService.cs`
 - **Inventory uniqueness**: `Stocks` is unique per `(BranchId, ProductVariantId)` and enforced by a unique index.  
   - `AppDbContext.OnModelCreating` in `KuyumStokApi.Persistence/Contexts/AppDbContext.cs`
+- **PublicCode**: `Stocks.PublicCode` is a 10-char Crockford Base32 code (normalized) and unique when present.  
+  - `KuyumStokApi.Infrastructure/Services/PublicCodeService/PublicCodeService.cs`, `KuyumStokApi.Persistence/Migrations/20260127120000_AddStockPublicCode.cs`
+- **QR payload**: QR payload = PublicCode only (raw short code string).  
+  - Resolve mekanizmasi `/r/{code}` ile ayridir.
 - **TotalWeightGram semantics**:  
   - `Stocks.TotalWeightGram` is total on-hand weight; `SaleDetails.TotalWeightGram` and `PurchaseDetails.TotalWeightGram` are line totals.  
   - `KuyumStokApi.Domain/Entities/Stocks.cs`, `SaleDetails.cs`, `PurchaseDetails.cs`
@@ -440,7 +459,7 @@ Example:
 - Dashboard updates are sent both periodically (background service) and on data changes (SaveChanges hooks).
 - Inventory model is one `Stocks` row per `(BranchId, ProductVariantId)` with total gram tracking.
 - Dockerfile builds and runs the API on port 5000 in container.
-- No test projects or CI scripts were found in this scan.
+- Test projesi mevcut (`KuyumStokApi.Tests`); CI/CD scriptleri bulunamadi.  
 
 ---
 
