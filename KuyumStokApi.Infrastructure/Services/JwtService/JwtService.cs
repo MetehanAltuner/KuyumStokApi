@@ -1,4 +1,4 @@
-﻿using KuyumStokApi.Application.DTOs.Auth;
+using KuyumStokApi.Application.DTOs.Auth;
 using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Domain.Entities;
 using Microsoft.Extensions.Options;
@@ -72,7 +72,8 @@ namespace KuyumStokApi.Infrastructure.Services.JwtService
             return new AuthResponseDto
             {
                 Token = tokenString,
-                Expiration = expires
+                Expiration = expires,
+                Username = user.Username
             };
         }
 

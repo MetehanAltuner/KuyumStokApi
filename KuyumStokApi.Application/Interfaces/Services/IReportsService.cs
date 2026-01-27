@@ -11,6 +11,8 @@ namespace KuyumStokApi.Application.Interfaces.Services
         Task<ApiResult<BranchOverviewReportDto>> GetBranchOverviewAsync(int? branchId, ReportDateRange range, CancellationToken ct = default);
         Task<ApiResult<UserPerformanceReportDto>> GetUserPerformanceAsync(int? userId, ReportDateRange range, CancellationToken ct = default);
         Task<ApiResult<SalesTrendReportDto>> GetSalesTrendAsync(ReportTrendGranularity granularity, ReportDateRange range, CancellationToken ct = default);
+        Task<ApiResult<PagedResponseDto<PersonnelPerformanceRowDto>>> GetPersonnelPerformanceAsync(PersonnelPerformanceQueryDto query, CancellationToken ct = default);
+        Task<ApiResult<byte[]>> ExportPersonnelPerformanceXlsxAsync(PersonnelPerformanceQueryDto query, CancellationToken ct = default);
     }
 }
 

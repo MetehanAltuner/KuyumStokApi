@@ -1,13 +1,17 @@
+using ClosedXML.Excel;
 using KuyumStokApi.Application.Common;
 using KuyumStokApi.Application.DTOs.Reports;
 using KuyumStokApi.Application.Interfaces.Auth;
 using KuyumStokApi.Application.Interfaces.Services;
+using KuyumStokApi.Domain.Entities;
 using KuyumStokApi.Persistence.Contexts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -19,7 +23,7 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
         private readonly ICurrentUserContext _currentUser;
         private readonly ILogger<ReportsService> _logger;
 
-        private static readonly string[] OwnerRoleHints = { "owner", "admin" };
+        private static readonly string[] OwnerRoleHints = { "owner", "admin", "developer" };
         private static readonly string[] ManagerRoleHints = { "manager" };
 
         public ReportsService(IDbContextFactory<AppDbContext> dbFactory, ICurrentUserContext currentUser, ILogger<ReportsService> logger)
@@ -258,7 +262,433 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
             return ApiResult<SalesTrendReportDto>.Ok(dto, "Satış trend raporu hazırlandı", 200);
         }
 
+        public async Task<ApiResult<PagedResponseDto<PersonnelPerformanceRowDto>>> GetPersonnelPerformanceAsync(
+            PersonnelPerformanceQueryDto query,
+            CancellationToken ct = default)
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var scope = await ResolveScopeAsync(db, ct);
+            if (!scope.AccessibleBranchIds.Any())
+                return ApiResult<PagedResponseDto<PersonnelPerformanceRowDto>>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
+
+            var branchIds = ResolveBranchScope(scope, query.BranchId);
+            if (!branchIds.Any())
+                return ApiResult<PagedResponseDto<PersonnelPerformanceRowDto>>.Fail("Bu şube için rapor görüntüleme yetkiniz yok.", statusCode: 403);
+
+            var (fromUtc, toUtc) = NormalizePersonnelRange(query);
+
+            var rows = await BuildPersonnelPerformanceRowsAsync(db, branchIds, fromUtc, toUtc, ct);
+            var sorted = SortPersonnelRows(rows, query.SortBy, query.SortDir);
+
+            var page = Math.Max(1, query.Page);
+            var pageSize = Math.Clamp(query.PageSize, 1, 100);
+            var totalItems = sorted.Count;
+            var totalPages = totalItems == 0 ? 0 : (int)Math.Ceiling(totalItems / (double)pageSize);
+
+            var paged = new PagedResponseDto<PersonnelPerformanceRowDto>
+            {
+                Items = sorted.Skip((page - 1) * pageSize).Take(pageSize).ToList(),
+                Page = page,
+                PageSize = pageSize,
+                TotalItems = totalItems,
+                TotalPages = totalPages
+            };
+
+            return ApiResult<PagedResponseDto<PersonnelPerformanceRowDto>>.Ok(paged, "Personel performans raporu hazırlandı", 200);
+        }
+
+        public async Task<ApiResult<byte[]>> ExportPersonnelPerformanceXlsxAsync(
+            PersonnelPerformanceQueryDto query,
+            CancellationToken ct = default)
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var scope = await ResolveScopeAsync(db, ct);
+            if (!scope.AccessibleBranchIds.Any())
+                return ApiResult<byte[]>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
+
+            var branchIds = ResolveBranchScope(scope, query.BranchId);
+            if (!branchIds.Any())
+                return ApiResult<byte[]>.Fail("Bu şube için rapor görüntüleme yetkiniz yok.", statusCode: 403);
+
+            var (fromUtc, toUtc) = NormalizePersonnelRange(query);
+
+            var rows = await BuildPersonnelPerformanceRowsAsync(db, branchIds, fromUtc, toUtc, ct);
+            var sorted = SortPersonnelRows(rows, query.SortBy, query.SortDir);
+
+            var bytes = BuildPersonnelPerformanceXlsx(sorted);
+            return ApiResult<byte[]>.Ok(bytes, "Personel performans dosyası hazırlandı", 200);
+        }
+
         #region Helpers
+
+        private static IReadOnlyCollection<int> ResolveBranchScope(ReportScope scope, int? requestedBranchId)
+        {
+            if (requestedBranchId.HasValue)
+            {
+                if (IsOwnerRole(scope.RoleName))
+                {
+                    if (scope.AccessibleBranchIds.Contains(requestedBranchId.Value))
+                        return new[] { requestedBranchId.Value };
+
+                    return Array.Empty<int>();
+                }
+
+                if (scope.BranchId.HasValue)
+                    return new[] { scope.BranchId.Value };
+            }
+
+            return scope.AccessibleBranchIds;
+        }
+
+        private async Task<List<PersonnelPerformanceRowDto>> BuildPersonnelPerformanceRowsAsync(
+            AppDbContext db,
+            IReadOnlyCollection<int> branchIds,
+            DateTime fromUtc,
+            DateTime toUtc,
+            CancellationToken ct)
+        {
+            var baseUsersQuery =
+                from s in db.Sales.IgnoreQueryFilters().AsNoTracking()
+                where s.BranchId != null && branchIds.Contains(s.BranchId.Value)
+                let created = s.CreatedAt ?? s.UpdatedAt ?? fromUtc
+                where created >= fromUtc && created <= toUtc
+                where s.UserId != null
+                join u in db.Users.IgnoreQueryFilters().AsNoTracking() on s.UserId equals u.Id
+                join r in db.Roles.IgnoreQueryFilters().AsNoTracking() on u.RoleId equals r.Id into jr
+                from r in jr.DefaultIfEmpty()
+                select new
+                {
+                    u.Id,
+                    u.FirstName,
+                    u.LastName,
+                    RoleName = r != null ? r.Name : null,
+                    IsActive = u.IsActive ?? false
+                };
+
+            var baseUsers = await baseUsersQuery.Distinct().ToListAsync(ct);
+            if (baseUsers.Count == 0)
+                return new List<PersonnelPerformanceRowDto>();
+
+            var nonCanceledQuery =
+                from d in db.SaleDetails.AsNoTracking()
+                join s in db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                where s.BranchId != null && branchIds.Contains(s.BranchId.Value)
+                let created = s.CreatedAt ?? s.UpdatedAt ?? fromUtc
+                where created >= fromUtc && created <= toUtc
+                where s.UserId != null
+                join u in db.Users.AsNoTracking() on s.UserId equals u.Id
+                join r in db.Roles.AsNoTracking() on u.RoleId equals r.Id into jr
+                from r in jr.DefaultIfEmpty()
+                select new
+                {
+                    u.Id,
+                    u.FirstName,
+                    u.LastName,
+                    RoleName = r != null ? r.Name : null,
+                    IsActive = u.IsActive ?? false,
+                    SoldPrice = d.SoldPrice ?? 0m
+                };
+
+            var aggregates = await nonCanceledQuery
+                .GroupBy(x => new { x.Id, x.FirstName, x.LastName, x.RoleName, x.IsActive })
+                .Select(g => new
+                {
+                    UserId = g.Key.Id,
+                    g.Key.FirstName,
+                    g.Key.LastName,
+                    g.Key.RoleName,
+                    g.Key.IsActive,
+                    TotalSales = g.Sum(x => x.SoldPrice),
+                    TransactionCount = g.Count()
+                })
+                .ToListAsync(ct);
+
+            var cancelCounts = await BuildCancelCountsAsync(db, branchIds, fromUtc, toUtc, ct);
+            var cancelMap = cancelCounts.ToDictionary(x => x.UserId, x => x.CancelCount);
+            var totalsMap = aggregates.ToDictionary(x => x.UserId, x => x);
+
+            var rows = new List<PersonnelPerformanceRowDto>(baseUsers.Count);
+            foreach (var user in baseUsers)
+            {
+                totalsMap.TryGetValue(user.Id, out var totals);
+                cancelMap.TryGetValue(user.Id, out var cancelCount);
+
+                var fullName = $"{user.FirstName} {user.LastName}".Trim();
+                if (string.IsNullOrWhiteSpace(fullName))
+                    fullName = string.Empty;
+
+                rows.Add(new PersonnelPerformanceRowDto
+                {
+                    UserId = user.Id,
+                    PersonnelName = fullName,
+                    Department = user.RoleName,
+                    TotalSales = totals?.TotalSales ?? 0m,
+                    TransactionCount = totals?.TransactionCount ?? 0,
+                    CancelCount = cancelCount,
+                    IsActive = user.IsActive
+                });
+            }
+
+            ApplyPerformanceScores(rows);
+            return rows;
+        }
+
+        private async Task<List<CancelCountRow>> BuildCancelCountsAsync(
+            AppDbContext db,
+            IReadOnlyCollection<int> branchIds,
+            DateTime fromUtc,
+            DateTime toUtc,
+            CancellationToken ct)
+        {
+            var detailCanceled = BuildCancellationPredicate<SaleDetails>(db);
+            var saleCanceled = BuildCancellationPredicate<Sales>(db);
+
+            if (detailCanceled == null && saleCanceled == null)
+                return new List<CancelCountRow>();
+
+            var emptyPairs =
+                db.SaleDetails.IgnoreQueryFilters()
+                    .Where(d => false)
+                    .Select(d => new CanceledLinePair { UserId = 0, LineId = 0 });
+
+            IQueryable<CanceledLinePair> canceledByDetail = emptyPairs;
+            if (detailCanceled != null)
+            {
+                canceledByDetail =
+                    from d in db.SaleDetails.IgnoreQueryFilters().AsNoTracking().Where(detailCanceled)
+                    join s in db.Sales.IgnoreQueryFilters().AsNoTracking() on d.SaleId equals s.Id
+                    where s.BranchId != null && branchIds.Contains(s.BranchId.Value)
+                    let created = s.CreatedAt ?? s.UpdatedAt ?? fromUtc
+                    where created >= fromUtc && created <= toUtc
+                    where s.UserId != null
+                    select new CanceledLinePair
+                    {
+                        UserId = s.UserId!.Value,
+                        LineId = d.Id
+                    };
+            }
+
+            IQueryable<CanceledLinePair> canceledBySale = emptyPairs;
+            if (saleCanceled != null)
+            {
+                canceledBySale =
+                    from s in db.Sales.IgnoreQueryFilters().AsNoTracking().Where(saleCanceled)
+                    join d in db.SaleDetails.IgnoreQueryFilters().AsNoTracking() on s.Id equals d.SaleId
+                    where s.BranchId != null && branchIds.Contains(s.BranchId.Value)
+                    let created = s.CreatedAt ?? s.UpdatedAt ?? fromUtc
+                    where created >= fromUtc && created <= toUtc
+                    where s.UserId != null
+                    select new CanceledLinePair
+                    {
+                        UserId = s.UserId!.Value,
+                        LineId = d.Id
+                    };
+            }
+
+            var merged = canceledByDetail.Union(canceledBySale);
+
+            return await merged
+                .Distinct()
+                .GroupBy(x => x.UserId)
+                .Select(g => new CancelCountRow { UserId = g.Key, CancelCount = g.Count() })
+                .ToListAsync(ct);
+        }
+
+        private static void ApplyPerformanceScores(List<PersonnelPerformanceRowDto> rows)
+        {
+            if (rows.Count == 0)
+                return;
+
+            var minSales = rows.Min(x => x.TotalSales);
+            var maxSales = rows.Max(x => x.TotalSales);
+            var minTx = rows.Min(x => x.TransactionCount);
+            var maxTx = rows.Max(x => x.TransactionCount);
+
+            foreach (var row in rows)
+            {
+                var normSales = maxSales == minSales
+                    ? 1m
+                    : (row.TotalSales - minSales) / (maxSales - minSales);
+
+                var normTx = maxTx == minTx
+                    ? 1m
+                    : (row.TransactionCount - minTx) / (decimal)(maxTx - minTx);
+
+                var totalOps = row.TransactionCount + row.CancelCount;
+                var cancelRate = totalOps <= 0 ? 0m : row.CancelCount / (decimal)totalOps;
+                var baseScore = 100m * (0.7m * normSales + 0.3m * normTx);
+                var penalty = 100m * 0.5m * cancelRate;
+                var score = Math.Clamp(baseScore - penalty, 0m, 100m);
+                row.PerformanceScorePercent = (int)Math.Round(score);
+            }
+        }
+
+        private static List<PersonnelPerformanceRowDto> SortPersonnelRows(
+            IEnumerable<PersonnelPerformanceRowDto> rows,
+            string? sortBy,
+            string? sortDir)
+        {
+            var list = rows.ToList();
+            if (list.Count == 0)
+                return list;
+
+            var key = (sortBy ?? "totalSales").Trim().ToLowerInvariant();
+            var desc = !string.Equals(sortDir, "asc", StringComparison.OrdinalIgnoreCase);
+
+            IOrderedEnumerable<PersonnelPerformanceRowDto> ordered = key switch
+            {
+                "transactioncount" => desc
+                    ? list.OrderByDescending(x => x.TransactionCount)
+                    : list.OrderBy(x => x.TransactionCount),
+                "cancelcount" => desc
+                    ? list.OrderByDescending(x => x.CancelCount)
+                    : list.OrderBy(x => x.CancelCount),
+                "performancescore" => desc
+                    ? list.OrderByDescending(x => x.PerformanceScorePercent)
+                    : list.OrderBy(x => x.PerformanceScorePercent),
+                "name" => desc
+                    ? list.OrderByDescending(x => x.PersonnelName)
+                    : list.OrderBy(x => x.PersonnelName),
+                _ => desc
+                    ? list.OrderByDescending(x => x.TotalSales)
+                    : list.OrderBy(x => x.TotalSales)
+            };
+
+            return ordered.ToList();
+        }
+
+        private static (DateTime fromUtc, DateTime toUtc) NormalizePersonnelRange(PersonnelPerformanceQueryDto query)
+        {
+            var toUtc = query.To ?? DateTime.UtcNow;
+            if (toUtc.Kind == DateTimeKind.Unspecified)
+                toUtc = DateTime.SpecifyKind(toUtc, DateTimeKind.Utc);
+
+            var fromUtc = query.From ?? new DateTime(toUtc.Year, toUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            if (fromUtc.Kind == DateTimeKind.Unspecified)
+                fromUtc = DateTime.SpecifyKind(fromUtc, DateTimeKind.Utc);
+
+            if (fromUtc > toUtc)
+                (fromUtc, toUtc) = (toUtc, fromUtc);
+
+            return (fromUtc, toUtc);
+        }
+
+        private static Expression<Func<T, bool>>? BuildCancellationPredicate<T>(AppDbContext db) where T : class
+        {
+            var entityType = db.Model.FindEntityType(typeof(T));
+            if (entityType == null)
+                return null;
+
+            var param = Expression.Parameter(typeof(T), "e");
+            Expression? body = null;
+
+            void Add(Expression expr)
+            {
+                body = body == null ? expr : Expression.OrElse(body, expr);
+            }
+
+            var isDeletedProp = entityType.FindProperty("IsDeleted");
+            if (isDeletedProp != null && (isDeletedProp.ClrType == typeof(bool) || isDeletedProp.ClrType == typeof(bool?)))
+            {
+                var prop = Expression.Property(param, "IsDeleted");
+                var constant = Expression.Constant(true, prop.Type);
+                Add(Expression.Equal(prop, constant));
+            }
+
+            var deletedAtProp = entityType.FindProperty("DeletedAt");
+            if (deletedAtProp != null && (deletedAtProp.ClrType == typeof(DateTime?) || deletedAtProp.ClrType == typeof(DateTime)))
+            {
+                var prop = Expression.Property(param, "DeletedAt");
+                var constant = Expression.Constant(null, prop.Type);
+                Add(Expression.NotEqual(prop, constant));
+            }
+
+            var isCanceledProp = entityType.FindProperty("IsCanceled");
+            if (isCanceledProp != null && (isCanceledProp.ClrType == typeof(bool) || isCanceledProp.ClrType == typeof(bool?)))
+            {
+                var prop = Expression.Property(param, "IsCanceled");
+                var constant = Expression.Constant(true, prop.Type);
+                Add(Expression.Equal(prop, constant));
+            }
+
+            var canceledAtProp = entityType.FindProperty("CanceledAt");
+            if (canceledAtProp != null && (canceledAtProp.ClrType == typeof(DateTime?) || canceledAtProp.ClrType == typeof(DateTime)))
+            {
+                var prop = Expression.Property(param, "CanceledAt");
+                var constant = Expression.Constant(null, prop.Type);
+                Add(Expression.NotEqual(prop, constant));
+            }
+
+            var statusProp = entityType.FindProperty("Status");
+            if (statusProp != null && statusProp.ClrType == typeof(string))
+            {
+                var prop = Expression.Property(param, "Status");
+                var notNull = Expression.NotEqual(prop, Expression.Constant(null, typeof(string)));
+                var toLower = Expression.Call(prop, typeof(string).GetMethod("ToLower", Type.EmptyTypes)!);
+                var values = new[] { "canceled", "cancelled", "iptal", "iptal edildi" };
+
+                Expression? statusExpr = null;
+                foreach (var value in values)
+                {
+                    var eq = Expression.Equal(toLower, Expression.Constant(value));
+                    statusExpr = statusExpr == null ? eq : Expression.OrElse(statusExpr, eq);
+                }
+
+                if (statusExpr != null)
+                    Add(Expression.AndAlso(notNull, statusExpr));
+            }
+
+            if (body == null)
+                return null;
+
+            return Expression.Lambda<Func<T, bool>>(body, param);
+        }
+
+        private static byte[] BuildPersonnelPerformanceXlsx(IReadOnlyList<PersonnelPerformanceRowDto> rows)
+        {
+            using var workbook = new XLWorkbook();
+            var sheet = workbook.Worksheets.Add("Personnel Report");
+
+            var headers = new[]
+            {
+                "Personnel Name",
+                "Department",
+                "Total Sales",
+                "Transaction Count",
+                "Cancel Count",
+                "Performance Score (%)",
+                "Status"
+            };
+
+            for (var i = 0; i < headers.Length; i++)
+            {
+                var cell = sheet.Cell(1, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+            }
+
+            var rowIndex = 2;
+            foreach (var row in rows)
+            {
+                sheet.Cell(rowIndex, 1).Value = row.PersonnelName;
+                sheet.Cell(rowIndex, 2).Value = row.Department ?? string.Empty;
+                sheet.Cell(rowIndex, 3).Value = row.TotalSales;
+                sheet.Cell(rowIndex, 4).Value = row.TransactionCount;
+                sheet.Cell(rowIndex, 5).Value = row.CancelCount;
+                sheet.Cell(rowIndex, 6).Value = row.PerformanceScorePercent;
+                sheet.Cell(rowIndex, 7).Value = row.IsActive ? "Aktif" : "Pasif";
+                rowIndex++;
+            }
+
+            sheet.Column(3).Style.NumberFormat.Format = "#,##0.00";
+            sheet.Column(6).Style.NumberFormat.Format = "0";
+            sheet.SheetView.FreezeRows(1);
+            sheet.Columns().AdjustToContents();
+
+            using var stream = new MemoryStream();
+            workbook.SaveAs(stream);
+            return stream.ToArray();
+        }
 
         private static IQueryable<SaleLineProjection> BuildSaleLineQuery(AppDbContext db, DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<int> branchIds)
         {
@@ -488,6 +918,18 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
             public int? StoreId { get; set; }
             public string? RoleName { get; set; }
             public List<int> AccessibleBranchIds { get; set; } = new();
+        }
+
+        private sealed class CancelCountRow
+        {
+            public int UserId { get; set; }
+            public int CancelCount { get; set; }
+        }
+
+        private sealed class CanceledLinePair
+        {
+            public int UserId { get; set; }
+            public int LineId { get; set; }
         }
 
         private sealed class SaleLineProjection
