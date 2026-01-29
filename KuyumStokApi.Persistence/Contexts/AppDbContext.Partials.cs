@@ -1,4 +1,4 @@
-﻿using KuyumStokApi.Application.Interfaces.Services;
+using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Domain.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,6 +16,7 @@ namespace KuyumStokApi.Persistence.Contexts
     {
         // Dashboard notification servisi için IServiceProvider (lazy loading)
         private IServiceProvider? _serviceProvider;
+        public bool SuppressDashboardNotifications { get; set; }
 
         /// <summary>
         /// ServiceProvider'ı set et (DependencyInjection tarafından çağrılır)
@@ -52,7 +53,7 @@ namespace KuyumStokApi.Persistence.Contexts
             var result = base.SaveChanges();
 
             // SaveChanges başarılı olduysa broadcast tetikle
-            if (result > 0 && changedEntityTypes.Any())
+            if (!SuppressDashboardNotifications && result > 0 && changedEntityTypes.Any())
             {
                 TriggerDashboardNotifications(changedEntityTypes);
             }
@@ -70,7 +71,7 @@ namespace KuyumStokApi.Persistence.Contexts
             var result = await base.SaveChangesAsync(cancellationToken);
 
             // SaveChanges başarılı olduysa broadcast tetikle
-            if (result > 0 && changedEntityTypes.Any())
+            if (!SuppressDashboardNotifications && result > 0 && changedEntityTypes.Any())
             {
                 TriggerDashboardNotifications(changedEntityTypes);
             }
@@ -134,27 +135,26 @@ namespace KuyumStokApi.Persistence.Contexts
 
             try
             {
-                // Servisi scope içinde al
-                using var scope = _serviceProvider.CreateScope();
-                var notificationService = scope.ServiceProvider
-                    .GetService<IDashboardNotificationService>();
-
-                if (notificationService != null)
+                // Fire-and-forget: scope ve servisleri task içinde oluştur
+                _ = Task.Run(async () =>
                 {
-                    // Fire-and-forget: Async çağrıyı başlat ama bekleme
-                    _ = Task.Run(async () =>
+                    try
                     {
-                        try
+                        using var scope = _serviceProvider.CreateScope();
+                        var notificationService = scope.ServiceProvider
+                            .GetService<IDashboardNotificationService>();
+
+                        if (notificationService != null)
                         {
                             await notificationService.NotifyDashboardChangesAsync(changedEntityTypes);
                         }
-                        catch (Exception ex)
-                        {
-                            var logger = scope.ServiceProvider.GetService<ILogger<AppDbContext>>();
-                            logger?.LogWarning(ex, "Dashboard notification tetiklenirken hata oluştu");
-                        }
-                    });
-                }
+                    }
+                    catch (Exception ex)
+                    {
+                        var logger = _serviceProvider.GetService<ILogger<AppDbContext>>();
+                        logger?.LogWarning(ex, "Dashboard notification tetiklenirken hata oluştu");
+                    }
+                });
             }
             catch
             {

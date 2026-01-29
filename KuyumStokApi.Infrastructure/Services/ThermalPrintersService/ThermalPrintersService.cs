@@ -7,6 +7,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using KuyumStokApi.Infrastructure.Validation;
 
 namespace KuyumStokApi.Infrastructure.Services.ThermalPrintersService
 {
@@ -91,6 +92,16 @@ namespace KuyumStokApi.Infrastructure.Services.ThermalPrintersService
 
         public async Task<ApiResult<ThermalPrinterDto>> CreateAsync(ThermalPrinterCreateDto dto, CancellationToken ct = default)
         {
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.BranchId), dto.BranchId);
+                PositiveNumberGuard.RequirePositive(nameof(dto.Port), dto.Port);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<ThermalPrinterDto>.Fail(ex.Message, statusCode: 400);
+            }
+
             // her branch için tek yazıcı kuralı
             var exists = await _db.ThermalPrinters.AnyAsync(p => p.BranchId == dto.BranchId, ct);
             if (exists)
@@ -127,6 +138,15 @@ namespace KuyumStokApi.Infrastructure.Services.ThermalPrintersService
             var entity = await _db.ThermalPrinters.FirstOrDefaultAsync(p => p.Id == id, ct);
             if (entity is null)
                 return ApiResult<bool>.Fail("Termal yazıcı bulunamadı.", statusCode: 404);
+
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.Port), dto.Port);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<bool>.Fail(ex.Message, statusCode: 400);
+            }
 
             if (!string.IsNullOrWhiteSpace(dto.Name))
                 entity.Name = dto.Name.Trim();

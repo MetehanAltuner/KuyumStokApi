@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using KuyumStokApi.Infrastructure.QrCode;
+using KuyumStokApi.Infrastructure.Validation;
 
 namespace KuyumStokApi.Infrastructure.Services.StocksService
 {
@@ -306,6 +307,26 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
         /// </summary>
         public async Task<ApiResult<StockDto>> CreateAsync(StockCreateDto dto, CancellationToken ct = default, bool skipPurchaseCreation = false)
         {
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.ProductVariantId), dto.ProductVariantId);
+                PositiveNumberGuard.RequirePositive(nameof(dto.BranchId), dto.BranchId);
+                PositiveNumberGuard.RequirePositive(nameof(dto.Quantity), dto.Quantity);
+                PositiveNumberGuard.RequirePositive(nameof(dto.TotalWeightGram), dto.TotalWeightGram);
+                PositiveNumberGuard.RequirePositive(nameof(dto.Gram), dto.Gram);
+                PositiveNumberGuard.RequirePositive(nameof(dto.Thickness), dto.Thickness);
+                PositiveNumberGuard.RequirePositive(nameof(dto.Width), dto.Width);
+                PositiveNumberGuard.RequirePositive(nameof(dto.Carat), dto.Carat);
+                PositiveNumberGuard.RequirePositive(nameof(dto.WorkmanshipMilyem), dto.WorkmanshipMilyem);
+                if (!dto.PurchasePrice.HasValue)
+                    throw new InvalidOperationException("PurchasePrice must be greater than 0.");
+                PositiveNumberGuard.RequirePositive(nameof(dto.PurchasePrice), dto.PurchasePrice);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<StockDto>.Fail(ex.Message, statusCode: 400);
+            }
+
             // BranchId belirleme
             var branchId = dto.BranchId ?? _user.BranchId;
             if (!branchId.HasValue)
@@ -506,6 +527,22 @@ namespace KuyumStokApi.Infrastructure.Services.StocksService
             var entity = await _db.Stocks.FirstOrDefaultAsync(x => x.Id == id, ct);
             if (entity is null)
                 return ApiResult<bool>.Fail("Stok bulunamadı", statusCode: 404);
+
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.ProductVariantId), dto.ProductVariantId);
+                PositiveNumberGuard.RequirePositive(nameof(dto.BranchId), dto.BranchId);
+                PositiveNumberGuard.RequirePositive(nameof(dto.Quantity), dto.Quantity);
+                PositiveNumberGuard.RequirePositive(nameof(dto.Gram), dto.Gram);
+                PositiveNumberGuard.RequirePositive(nameof(dto.Thickness), dto.Thickness);
+                PositiveNumberGuard.RequirePositive(nameof(dto.Width), dto.Width);
+                PositiveNumberGuard.RequirePositive(nameof(dto.Carat), dto.Carat);
+                PositiveNumberGuard.RequirePositive(nameof(dto.WorkmanshipMilyem), dto.WorkmanshipMilyem);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<bool>.Fail(ex.Message, statusCode: 400);
+            }
 
             if (!string.IsNullOrWhiteSpace(dto.Barcode) && dto.Barcode != entity.Barcode)
             {

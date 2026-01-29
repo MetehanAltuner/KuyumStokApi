@@ -1,6 +1,7 @@
-﻿using KuyumStokApi.Infrastructure;
+using KuyumStokApi.Infrastructure;
 using KuyumStokApi.Infrastructure.Services.BanksService;
 using KuyumStokApi.Persistence;
+using KuyumStokApi.Infrastructure.DevSeeding;
 using KuyumStokApi.Persistence.Extensions;
 using KuyumStokApi.Application.Common;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -11,6 +12,7 @@ using System.Text;
 using KuyumStokApi.Application.Interfaces.Auth;
 using KuyumStokApi.Application.Hubs;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Mvc;
 static byte[] DecodeKey(string? b64)
 {
     if (string.IsNullOrWhiteSpace(b64))
@@ -24,7 +26,20 @@ var builder = WebApplication.CreateBuilder(args);
 
 var cfg = builder.Configuration;
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var errors = context.ModelState.Values
+                .SelectMany(v => v.Errors)
+                .Select(e => e.ErrorMessage)
+                .ToList();
+
+            var payload = ApiResult<object>.Fail("Doğrulama hatası.", errors, statusCode: 400);
+            return new BadRequestObjectResult(payload);
+        };
+    });
 builder.Services.AddSignalR();
 
 // CORS yapılandırması (SignalR için gerekli)
@@ -205,5 +220,8 @@ app.MapHub<DashboardHub>("/api/hubs/dashboard")
 
 // 🔄 Veritabanı migration ve seed data (app.Run öncesi!)
 await app.MigrateAndSeedAsync();
+
+// Development-only transactional seed (profit/loss demo)
+await DevSeedRunner.RunAsync(app.Services, app.Environment, app.Configuration);
 
 app.Run();

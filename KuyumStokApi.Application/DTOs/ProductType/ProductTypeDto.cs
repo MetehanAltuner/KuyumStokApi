@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -26,20 +27,22 @@ namespace KuyumStokApi.Application.DTOs.ProductType
     public sealed class ProductTypeCreateDto
     {
         public string Name { get; set; } = null!;
+        [Range(1, int.MaxValue, ErrorMessage = "CategoryId must be greater than 0.")]
         public int? CategoryId { get; set; }
     }
 
     public sealed class ProductTypeUpdateDto
     {
         public string Name { get; set; } = null!;
+        [Range(1, int.MaxValue, ErrorMessage = "CategoryId must be greater than 0.")]
         public int? CategoryId { get; set; }
     }
 
     public sealed record ProductTypeFilter(
-        int Page = 1,
-        int PageSize = 20,
+        [Range(1, int.MaxValue, ErrorMessage = "Page must be greater than 0.")] int Page = 1,
+        [Range(1, int.MaxValue, ErrorMessage = "PageSize must be greater than 0.")] int PageSize = 20,
         string? Query = null,
-        int? CategoryId = null,
+        [Range(1, int.MaxValue, ErrorMessage = "CategoryId must be greater than 0.")] int? CategoryId = null,
         bool? IsActive = null,
         bool IncludeDeleted = false,
         DateTime? UpdatedFromUtc = null,

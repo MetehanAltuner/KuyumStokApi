@@ -11,8 +11,10 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
+using KuyumStokApi.Domain.Entities;
 
 namespace KuyumStokApi.Infrastructure.Services.DashboardService
 {
@@ -850,65 +852,127 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                         break;
                 }
 
-                // Satış verileri - önce memory'ye çek, sonra grupla
-                var salesRaw = await (from d in db.SaleDetails.AsNoTracking()
-                                     join s in db.Sales.AsNoTracking() on d.SaleId equals s.Id
+                var saleDetailsQuery = db.SaleDetails.AsNoTracking();
+                var salesQuery = db.Sales.AsNoTracking();
+
+                var detailCanceled = BuildCancellationPredicate<SaleDetails>(db);
+                if (detailCanceled != null)
+                    saleDetailsQuery = saleDetailsQuery.Where(NegatePredicate(detailCanceled));
+
+                var saleCanceled = BuildCancellationPredicate<Sales>(db);
+                if (saleCanceled != null)
+                    salesQuery = salesQuery.Where(NegatePredicate(saleCanceled));
+
+                // Satış verileri - iptal hariç, dönem ve şube filtreli
+                var salesRaw = await (from d in saleDetailsQuery
+                                     join s in salesQuery on d.SaleId equals s.Id
                                      where s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value)
                                      let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
                                      where created >= periodStart && created <= now
                                      select new
                                      {
                                          Created = created,
+                                         StockId = d.StockId,
                                          Quantity = d.Quantity ?? 0,
                                          SoldPrice = d.SoldPrice ?? 0m
                                      })
                     .ToListAsync(ct);
 
-                var salesData = salesRaw
-                    .GroupBy(x => periodKeySelector(x.Created))
-                    .Select(g => new
-                    {
-                        Period = g.Key,
-                        Sales = g.Sum(x => x.Quantity * x.SoldPrice)
-                    })
+                var excludedCanceledCount = 0;
+                if (detailCanceled != null || saleCanceled != null)
+                {
+                    excludedCanceledCount = await CountCanceledSaleLinesAsync(
+                        db,
+                        scope.AccessibleBranchIds,
+                        periodStart,
+                        now,
+                        ct);
+                }
+
+                var stockIds = salesRaw
+                    .Where(x => x.StockId.HasValue)
+                    .Select(x => x.StockId!.Value)
+                    .Distinct()
                     .ToList();
 
-                // Alış maliyeti verileri - önce memory'ye çek, sonra grupla
-                var costRaw = await (from d in db.PurchaseDetails.AsNoTracking()
-                                     join p in db.Purchases.AsNoTracking() on d.PurchaseId equals p.Id
-                                     where p.BranchId != null && scope.AccessibleBranchIds.Contains(p.BranchId.Value)
-                                     let created = p.CreatedAt ?? p.UpdatedAt ?? DateTime.MinValue
-                                     where created >= periodStart && created <= now
-                                     select new
-                                     {
-                                         Created = created,
-                                         Quantity = d.Quantity ?? 0,
-                                         PurchasePrice = d.PurchasePrice ?? 0m
-                                     })
-                    .ToListAsync(ct);
+                var purchaseCostMap = new Dictionary<Guid, decimal>();
+                if (stockIds.Count > 0)
+                {
+                    var purchaseRows = await (from d in db.PurchaseDetails.AsNoTracking()
+                                             join p in db.Purchases.AsNoTracking() on d.PurchaseId equals p.Id
+                                             where d.StockId != null && stockIds.Contains(d.StockId.Value)
+                                             where p.BranchId != null && scope.AccessibleBranchIds.Contains(p.BranchId.Value)
+                                             let created = p.CreatedAt ?? p.UpdatedAt ?? DateTime.MinValue
+                                             select new
+                                             {
+                                                 StockId = d.StockId!.Value,
+                                                 PurchasePrice = d.PurchasePrice,
+                                                 Created = created
+                                             })
+                        .ToListAsync(ct);
 
-                var costData = costRaw
-                    .GroupBy(x => periodKeySelector(x.Created))
-                    .Select(g => new
-                    {
-                        Period = g.Key,
-                        Cost = g.Sum(x => x.Quantity * x.PurchasePrice)
-                    })
-                    .ToList();
+                    purchaseCostMap = purchaseRows
+                        .Where(x => x.PurchasePrice.HasValue)
+                        .GroupBy(x => x.StockId)
+                        .Select(g => g.OrderBy(x => x.Created).First())
+                        .ToDictionary(x => x.StockId, x => x.PurchasePrice!.Value);
+                }
 
-                // Verileri birleştir
                 var items = new List<ProfitLossItemDto>();
-                var salesDict = salesData.ToDictionary(x => x.Period, x => x.Sales);
-                var costDict = costData.ToDictionary(x => x.Period, x => x.Cost);
+                var periodBuckets = new Dictionary<DateTime, ProfitLossBucket>();
+                var includedLineCount = 0;
+                var missingCostCount = 0;
+                decimal totalProfitPositive = 0m;
+                decimal totalLoss = 0m;
+                decimal netTotal = 0m;
 
-                var allPeriods = salesDict.Keys.Union(costDict.Keys).OrderBy(p => p).ToList();
+                foreach (var line in salesRaw)
+                {
+                    if (!line.StockId.HasValue)
+                    {
+                        missingCostCount++;
+                        continue;
+                    }
+
+                    if (!purchaseCostMap.TryGetValue(line.StockId.Value, out var purchasePrice))
+                    {
+                        missingCostCount++;
+                        continue;
+                    }
+
+                    // Kâr/zarar: satış satırı, stokun ilk alış maliyetiyle karşılaştırılır.
+                    var revenue = line.Quantity * line.SoldPrice;
+                    var cost = line.Quantity * purchasePrice;
+                    var net = revenue - cost;
+
+                    var periodKey = periodKeySelector(line.Created);
+                    if (!periodBuckets.TryGetValue(periodKey, out var bucket))
+                    {
+                        bucket = new ProfitLossBucket();
+                        periodBuckets[periodKey] = bucket;
+                    }
+
+                    bucket.Sales += revenue;
+                    bucket.Cost += cost;
+                    bucket.Net += net;
+                    bucket.Profit += Math.Max(net, 0m);
+                    bucket.Loss += Math.Abs(Math.Min(net, 0m));
+
+                    totalProfitPositive += Math.Max(net, 0m);
+                    totalLoss += Math.Abs(Math.Min(net, 0m));
+                    netTotal += net;
+                    includedLineCount++;
+                }
+
+                var allPeriods = periodBuckets.Keys.OrderBy(p => p).ToList();
 
                 decimal? previousProfit = null;
                 foreach (var periodKey in allPeriods)
                 {
-                    var sales = salesDict.GetValueOrDefault(periodKey, 0);
-                    var cost = costDict.GetValueOrDefault(periodKey, 0);
-                    var profit = sales - cost;
+                    var bucket = periodBuckets[periodKey];
+                    var sales = bucket.Sales;
+                    var cost = bucket.Cost;
+                    var profit = bucket.Net;
                     var profitPercentage = sales > 0 ? (profit / sales) * 100 : 0;
 
                     // Decimal değerleri 2 ondalık basamağa yuvarla
@@ -945,15 +1009,17 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                     previousProfit = profit;
                 }
 
-                var totalSales = items.Sum(x => x.Sales);
-                var totalCost = items.Sum(x => x.Cost);
-                var totalProfit = totalSales - totalCost;
+                var totalSales = periodBuckets.Values.Sum(x => x.Sales);
+                var totalCost = periodBuckets.Values.Sum(x => x.Cost);
+                var totalProfit = netTotal;
                 var totalProfitPercentage = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
 
                 // Decimal değerleri 2 ondalık basamağa yuvarla
                 totalSales = Math.Round(totalSales, 2);
                 totalCost = Math.Round(totalCost, 2);
                 totalProfit = Math.Round(totalProfit, 2);
+                totalLoss = Math.Round(totalLoss, 2);
+                netTotal = Math.Round(netTotal, 2);
                 totalProfitPercentage = Math.Round(totalProfitPercentage, 2);
 
                 var dto = new ProfitLossDto
@@ -962,8 +1028,19 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                     TotalSales = totalSales,
                     TotalCost = totalCost,
                     TotalProfit = totalProfit,
+                    TotalLoss = totalLoss,
+                    NetTotal = netTotal,
                     TotalProfitPercentage = totalProfitPercentage
                 };
+
+                _logger.LogInformation(
+                    "Kar/Zarar hesaplandı. DahilSatir={Included}, EksikMaliyet={MissingCost}, IptalSatir={Canceled}, ToplamKar={Profit}, ToplamZarar={Loss}, Net={Net}",
+                    includedLineCount,
+                    missingCostCount,
+                    excludedCanceledCount,
+                    Math.Round(totalProfitPositive, 2),
+                    totalLoss,
+                    netTotal);
 
                 return ApiResult<ProfitLossDto>.Ok(dto, "Kar-Zarar tablosu hazırlandı", 200);
             }
@@ -982,6 +1059,141 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
         }
 
         #region Helpers
+
+        private sealed class ProfitLossBucket
+        {
+            public decimal Sales { get; set; }
+            public decimal Cost { get; set; }
+            public decimal Net { get; set; }
+            public decimal Profit { get; set; }
+            public decimal Loss { get; set; }
+        }
+
+        private static Expression<Func<T, bool>> NegatePredicate<T>(Expression<Func<T, bool>> predicate)
+        {
+            var param = predicate.Parameters[0];
+            var body = Expression.Not(predicate.Body);
+            return Expression.Lambda<Func<T, bool>>(body, param);
+        }
+
+        private static Expression<Func<T, bool>>? BuildCancellationPredicate<T>(AppDbContext db) where T : class
+        {
+            var entityType = db.Model.FindEntityType(typeof(T));
+            if (entityType == null)
+                return null;
+
+            var param = Expression.Parameter(typeof(T), "e");
+            Expression? body = null;
+
+            void Add(Expression expr)
+            {
+                body = body == null ? expr : Expression.OrElse(body, expr);
+            }
+
+            var isDeletedProp = entityType.FindProperty("IsDeleted");
+            if (isDeletedProp != null && (isDeletedProp.ClrType == typeof(bool) || isDeletedProp.ClrType == typeof(bool?)))
+            {
+                var prop = Expression.Property(param, "IsDeleted");
+                var constant = Expression.Constant(true, prop.Type);
+                Add(Expression.Equal(prop, constant));
+            }
+
+            var deletedAtProp = entityType.FindProperty("DeletedAt");
+            if (deletedAtProp != null && (deletedAtProp.ClrType == typeof(DateTime?) || deletedAtProp.ClrType == typeof(DateTime)))
+            {
+                var prop = Expression.Property(param, "DeletedAt");
+                var constant = Expression.Constant(null, prop.Type);
+                Add(Expression.NotEqual(prop, constant));
+            }
+
+            var isCanceledProp = entityType.FindProperty("IsCanceled");
+            if (isCanceledProp != null && (isCanceledProp.ClrType == typeof(bool) || isCanceledProp.ClrType == typeof(bool?)))
+            {
+                var prop = Expression.Property(param, "IsCanceled");
+                var constant = Expression.Constant(true, prop.Type);
+                Add(Expression.Equal(prop, constant));
+            }
+
+            var canceledAtProp = entityType.FindProperty("CanceledAt");
+            if (canceledAtProp != null && (canceledAtProp.ClrType == typeof(DateTime?) || canceledAtProp.ClrType == typeof(DateTime)))
+            {
+                var prop = Expression.Property(param, "CanceledAt");
+                var constant = Expression.Constant(null, prop.Type);
+                Add(Expression.NotEqual(prop, constant));
+            }
+
+            var statusProp = entityType.FindProperty("Status");
+            if (statusProp != null && statusProp.ClrType == typeof(string))
+            {
+                var prop = Expression.Property(param, "Status");
+                var notNull = Expression.NotEqual(prop, Expression.Constant(null, typeof(string)));
+                var toLower = Expression.Call(prop, typeof(string).GetMethod("ToLower", Type.EmptyTypes)!);
+                var values = new[] { "canceled", "cancelled", "iptal", "iptal edildi" };
+
+                Expression? statusExpr = null;
+                foreach (var value in values)
+                {
+                    var eq = Expression.Equal(toLower, Expression.Constant(value));
+                    statusExpr = statusExpr == null ? eq : Expression.OrElse(statusExpr, eq);
+                }
+
+                if (statusExpr != null)
+                    Add(Expression.AndAlso(notNull, statusExpr));
+            }
+
+            if (body == null)
+                return null;
+
+            return Expression.Lambda<Func<T, bool>>(body, param);
+        }
+
+        private static async Task<int> CountCanceledSaleLinesAsync(
+            AppDbContext db,
+            IReadOnlyCollection<int> branchIds,
+            DateTime fromUtc,
+            DateTime toUtc,
+            CancellationToken ct)
+        {
+            var detailCanceled = BuildCancellationPredicate<SaleDetails>(db);
+            var saleCanceled = BuildCancellationPredicate<Sales>(db);
+
+            if (detailCanceled == null && saleCanceled == null)
+                return 0;
+
+            var empty =
+                db.SaleDetails.IgnoreQueryFilters()
+                    .Where(d => false)
+                    .Select(d => d.Id);
+
+            IQueryable<int> canceledByDetail = empty;
+            if (detailCanceled != null)
+            {
+                canceledByDetail =
+                    from d in db.SaleDetails.IgnoreQueryFilters().AsNoTracking().Where(detailCanceled)
+                    join s in db.Sales.IgnoreQueryFilters().AsNoTracking() on d.SaleId equals s.Id
+                    where s.BranchId != null && branchIds.Contains(s.BranchId.Value)
+                    let created = s.CreatedAt ?? s.UpdatedAt ?? fromUtc
+                    where created >= fromUtc && created <= toUtc
+                    select d.Id;
+            }
+
+            IQueryable<int> canceledBySale = empty;
+            if (saleCanceled != null)
+            {
+                canceledBySale =
+                    from s in db.Sales.IgnoreQueryFilters().AsNoTracking().Where(saleCanceled)
+                    join d in db.SaleDetails.IgnoreQueryFilters().AsNoTracking() on s.Id equals d.SaleId
+                    where s.BranchId != null && branchIds.Contains(s.BranchId.Value)
+                    let created = s.CreatedAt ?? s.UpdatedAt ?? fromUtc
+                    where created >= fromUtc && created <= toUtc
+                    select d.Id;
+            }
+
+            return await canceledByDetail
+                .Union(canceledBySale)
+                .Distinct()
+                .CountAsync(ct);
+        }
 
         /// <summary>
         /// Kullanıcı bilgisi olmadan tüm şubeler için scope oluşturur (background service için)

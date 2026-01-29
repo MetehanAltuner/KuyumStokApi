@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel.DataAnnotations;
 
 namespace KuyumStokApi.Application.DTOs.Users
 {
@@ -37,7 +38,9 @@ namespace KuyumStokApi.Application.DTOs.Users
     {
         public string? FirstName { get; set; }
         public string? LastName { get; set; }
+        [Range(1, int.MaxValue, ErrorMessage = "RoleId must be greater than 0.")]
         public int? RoleId { get; set; }
+        [Range(1, int.MaxValue, ErrorMessage = "BranchId must be greater than 0.")]
         public int? BranchId { get; set; }
         /// <summary>Boş bırakılırsa aktiflik değişmez.</summary>
         public bool? IsActive { get; set; }
@@ -47,11 +50,11 @@ namespace KuyumStokApi.Application.DTOs.Users
 
     /// <summary>Kullanıcı listesi için filtre.</summary>
     public sealed record UserFilter(
-        int Page = 1,
-        int PageSize = 20,
+        [Range(1, int.MaxValue, ErrorMessage = "Page must be greater than 0.")] int Page = 1,
+        [Range(1, int.MaxValue, ErrorMessage = "PageSize must be greater than 0.")] int PageSize = 20,
         string? Query = null,
-        int? RoleId = null,
-        int? BranchId = null,
+        [Range(1, int.MaxValue, ErrorMessage = "RoleId must be greater than 0.")] int? RoleId = null,
+        [Range(1, int.MaxValue, ErrorMessage = "BranchId must be greater than 0.")] int? BranchId = null,
         bool? IsActive = null,
         bool IncludeDeleted = false,
         DateTime? UpdatedFromUtc = null,

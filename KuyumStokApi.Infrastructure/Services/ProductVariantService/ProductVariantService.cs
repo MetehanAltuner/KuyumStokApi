@@ -1,8 +1,9 @@
-﻿using KuyumStokApi.Application.Common;
+using KuyumStokApi.Application.Common;
 using KuyumStokApi.Application.DTOs.ProductVariant.KuyumStokApi.Application.DTOs.ProductVariants;
 using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Persistence.Contexts;
 using Microsoft.EntityFrameworkCore;
+using KuyumStokApi.Infrastructure.Validation;
 
 namespace KuyumStokApi.Infrastructure.Services.ProductVariantService
 {
@@ -116,8 +117,14 @@ namespace KuyumStokApi.Infrastructure.Services.ProductVariantService
 
         public async Task<ApiResult<ProductVariantDto>> CreateAsync(ProductVariantCreateDto dto, CancellationToken ct = default)
         {
-            if (dto.ProductTypeId is null || dto.ProductTypeId <= 0)
-                return ApiResult<ProductVariantDto>.Fail("ProductTypeId zorunludur.", statusCode: 400);
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.ProductTypeId), dto.ProductTypeId);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<ProductVariantDto>.Fail(ex.Message, statusCode: 400);
+            }
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return ApiResult<ProductVariantDto>.Fail("Name (model) zorunludur.", statusCode: 400);
 
@@ -161,8 +168,14 @@ namespace KuyumStokApi.Infrastructure.Services.ProductVariantService
             if (entity is null)
                 return ApiResult<bool>.Fail("Varyant bulunamadı", statusCode: 404);
 
-            if (dto.ProductTypeId is null || dto.ProductTypeId <= 0)
-                return ApiResult<bool>.Fail("ProductTypeId zorunludur.", statusCode: 400);
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.ProductTypeId), dto.ProductTypeId);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<bool>.Fail(ex.Message, statusCode: 400);
+            }
             if (string.IsNullOrWhiteSpace(dto.Name))
                 return ApiResult<bool>.Fail("Name (model) zorunludur.", statusCode: 400);
 

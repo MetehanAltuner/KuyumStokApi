@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.ComponentModel.DataAnnotations;
 
 namespace KuyumStokApi.Application.DTOs.ProductVariant
 {
@@ -61,6 +62,7 @@ namespace KuyumStokApi.Application.DTOs.ProductVariant
         public sealed class ProductVariantCreateDto
         {
             /// <summary>Bağlı ürün türü (zorunlu).</summary>
+            [Range(1, int.MaxValue, ErrorMessage = "ProductTypeId must be greater than 0.")]
             public int? ProductTypeId { get; set; }
 
             /// <summary>Model adı (örn. Ajda Bilezik) - ZORUNLU.</summary>
@@ -76,6 +78,7 @@ namespace KuyumStokApi.Application.DTOs.ProductVariant
         public sealed class ProductVariantUpdateDto
         {
             /// <summary>Bağlı ürün türü (zorunlu).</summary>
+            [Range(1, int.MaxValue, ErrorMessage = "ProductTypeId must be greater than 0.")]
             public int? ProductTypeId { get; set; }
 
             /// <summary>Model adı (örn. Ajda Bilezik) - ZORUNLU.</summary>
@@ -89,10 +92,10 @@ namespace KuyumStokApi.Application.DTOs.ProductVariant
 
         /// <summary>Varyantlar için filtre/sayfalama parametreleri.</summary>
         public sealed record ProductVariantFilter(
-            int Page = 1,
-            int PageSize = 20,
+            [Range(1, int.MaxValue, ErrorMessage = "Page must be greater than 0.")] int Page = 1,
+            [Range(1, int.MaxValue, ErrorMessage = "PageSize must be greater than 0.")] int PageSize = 20,
             string? Query = null,           // Name/Brand/Ayar/Color alanlarında arar
-            int? ProductTypeId = null,
+            [Range(1, int.MaxValue, ErrorMessage = "ProductTypeId must be greater than 0.")] int? ProductTypeId = null,
             bool? IsActive = null,
             bool IncludeDeleted = false,
             DateTime? UpdatedFromUtc = null,

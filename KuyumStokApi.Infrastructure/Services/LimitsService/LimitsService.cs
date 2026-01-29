@@ -1,8 +1,9 @@
-﻿using KuyumStokApi.Application.Common;
+using KuyumStokApi.Application.Common;
 using KuyumStokApi.Application.DTOs.Limits;
 using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Persistence.Contexts;
 using Microsoft.EntityFrameworkCore;
+using KuyumStokApi.Infrastructure.Validation;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -92,6 +93,18 @@ namespace KuyumStokApi.Infrastructure.Services.LimitsService
 
         public async Task<ApiResult<LimitDto>> CreateAsync(LimitCreateDto dto, CancellationToken ct = default)
         {
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.BranchId), dto.BranchId);
+                PositiveNumberGuard.RequirePositive(nameof(dto.ProductVariantId), dto.ProductVariantId);
+                PositiveNumberGuard.RequirePositive(nameof(dto.MinThreshold), dto.MinThreshold);
+                PositiveNumberGuard.RequirePositive(nameof(dto.MaxThreshold), dto.MaxThreshold);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<LimitDto>.Fail(ex.Message, statusCode: 400);
+            }
+
             var now = DateTime.UtcNow;
 
             var entity = new KuyumStokApi.Domain.Entities.Limits
@@ -124,6 +137,16 @@ namespace KuyumStokApi.Infrastructure.Services.LimitsService
         {
             var entity = await _db.Limits.FirstOrDefaultAsync(x => x.Id == id, ct);
             if (entity is null) return ApiResult<bool>.Fail("Limit bulunamadı", statusCode: 404);
+
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.MinThreshold), dto.MinThreshold);
+                PositiveNumberGuard.RequirePositive(nameof(dto.MaxThreshold), dto.MaxThreshold);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<bool>.Fail(ex.Message, statusCode: 400);
+            }
 
             entity.MinThreshold = dto.MinThreshold;
             entity.MaxThreshold = dto.MaxThreshold;

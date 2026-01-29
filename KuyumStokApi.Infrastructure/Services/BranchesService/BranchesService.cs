@@ -1,8 +1,9 @@
-﻿using KuyumStokApi.Application.Common;
+using KuyumStokApi.Application.Common;
 using KuyumStokApi.Application.DTOs.Branches;
 using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Persistence.Contexts;
 using Microsoft.EntityFrameworkCore;
+using KuyumStokApi.Infrastructure.Validation;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -106,6 +107,15 @@ namespace KuyumStokApi.Infrastructure.Services.BranchesService
 
         public async Task<ApiResult<BranchDto>> CreateAsync(BranchCreateDto dto, CancellationToken ct = default)
         {
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.StoreId), dto.StoreId);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<BranchDto>.Fail(ex.Message, statusCode: 400);
+            }
+
             var now = DateTime.UtcNow;
 
             var entity = new Domain.Entities.Branches
@@ -132,6 +142,15 @@ namespace KuyumStokApi.Infrastructure.Services.BranchesService
             var entity = await _db.Branches.FirstOrDefaultAsync(b => b.Id == id, ct);
             if (entity is null)
                 return ApiResult<bool>.Fail("Şube bulunamadı", statusCode: 404);
+
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.StoreId), dto.StoreId);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<bool>.Fail(ex.Message, statusCode: 400);
+            }
 
             entity.Name = dto.Name.Trim();
             entity.Address = dto.Address;

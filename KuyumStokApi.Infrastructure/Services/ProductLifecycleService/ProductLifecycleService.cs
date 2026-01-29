@@ -1,4 +1,4 @@
-﻿using KuyumStokApi.Application.Common;
+using KuyumStokApi.Application.Common;
 using KuyumStokApi.Application.DTOs.ProductLifecycles;
 using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Persistence.Contexts;
@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using KuyumStokApi.Infrastructure.Validation;
 
 namespace KuyumStokApi.Infrastructure.Services.ProductLifecycleService
 {
@@ -96,6 +97,15 @@ namespace KuyumStokApi.Infrastructure.Services.ProductLifecycleService
 
         public async Task<ApiResult<ProductLifecycleDto>> CreateAsync(ProductLifecycleCreateDto dto, CancellationToken ct = default)
         {
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.ActionId), dto.ActionId);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<ProductLifecycleDto>.Fail(ex.Message, statusCode: 400);
+            }
+
             // stok var mı?
             var stockExists = await _db.Stocks.AnyAsync(s => s.Id == dto.StockId, ct);
             if (!stockExists)

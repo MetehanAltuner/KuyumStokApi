@@ -10,9 +10,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using KuyumStokApi.Infrastructure.Validation;
 
 namespace KuyumStokApi.Infrastructure.Services.SalesService
 {
@@ -22,17 +24,20 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
         private readonly AppDbContext _db;
         private readonly ICurrentUserContext _currentUser;
         private readonly IStocksService _stocksService;
+        private readonly IDashboardNotificationService _dashboardNotificationService;
         private readonly ILogger<SalesService> _logger;
 
         public SalesService(
             AppDbContext db,
             ICurrentUserContext currentUser,
             IStocksService stocksService,
+            IDashboardNotificationService dashboardNotificationService,
             ILogger<SalesService> logger)
         {
             _db = db;
             _currentUser = currentUser;
             _stocksService = stocksService;
+            _dashboardNotificationService = dashboardNotificationService;
             _logger = logger;
         }
 
@@ -56,6 +61,24 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
             _logger.LogInformation("🧾 Birleşik fiş işlemi başlatıldı. Mode: {Mode}, User: {UserId}, Branch: {BranchId}",
                 dto.Mode, currentUserId, currentBranchId);
 
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.UserId), dto.UserId);
+                PositiveNumberGuard.RequirePositive(nameof(dto.BranchId), dto.BranchId);
+                PositiveNumberGuard.RequirePositive(nameof(dto.CustomerId), dto.CustomerId);
+                PositiveNumberGuard.RequirePositive(nameof(dto.Cash), dto.Cash);
+                PositiveNumberGuard.RequirePositive(nameof(dto.Eft), dto.Eft);
+                PositiveNumberGuard.RequirePositive(nameof(dto.Pos), dto.Pos);
+                PositiveNumberGuard.RequirePositive(nameof(dto.BankId), dto.BankId);
+                PositiveNumberGuard.RequirePositive(nameof(dto.POS_CommissionRate), dto.POS_CommissionRate);
+                PositiveNumberGuard.RequirePositive(nameof(dto.PaymentMethodId), dto.PaymentMethodId);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "⚠️ Birleşik fiş doğrulama hatası: {Message}", ex.Message);
+                return ApiResult<UnifiedReceiptResultDto>.Fail(ex.Message, statusCode: 400);
+            }
+
             var hasSaleItems = dto.SaleItems is { Count: > 0 };
             var hasPurchaseItems = dto.PurchaseItems is { Count: > 0 };
 
@@ -73,6 +96,7 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
             var customerId = await UpsertCustomerAsync(dto, ct);
 
             using var tx = await _db.Database.BeginTransactionAsync(ct);
+            _db.SuppressDashboardNotifications = true;
             int? saleId = null;
             int? purchaseId = null;
             var affectedStockIds = new List<Guid>();
@@ -95,9 +119,28 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
 
                 await _db.SaveChangesAsync(ct);
                 await tx.CommitAsync(ct);
+                _db.SuppressDashboardNotifications = false;
 
                 _logger.LogInformation("✅ Birleşik fiş işlemi tamamlandı. SaleId: {SaleId}, PurchaseId: {PurchaseId}",
                     saleId, purchaseId);
+
+                var broadcastStopwatch = Stopwatch.StartNew();
+                _logger.LogInformation("SaleCommitted: saleId={SaleId}, purchaseId={PurchaseId}", saleId, purchaseId);
+
+                try
+                {
+                    await _dashboardNotificationService.NotifySaleCommittedAsync(saleId, purchaseId, ct);
+                    broadcastStopwatch.Stop();
+                    _logger.LogInformation(
+                        "DashboardBroadcastTriggered: saleId={SaleId}, purchaseId={PurchaseId}, durationMs={DurationMs}",
+                        saleId, purchaseId, broadcastStopwatch.ElapsedMilliseconds);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Dashboard broadcast hata verdi (sale commit sonrası). SaleId={SaleId}, PurchaseId={PurchaseId}",
+                        saleId, purchaseId);
+                }
 
                 return ApiResult<UnifiedReceiptResultDto>.Ok(new UnifiedReceiptResultDto
                 {
@@ -119,6 +162,10 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                 await tx.RollbackAsync(ct);
                 _logger.LogError(ex, "❌ Birleşik fiş işlemi sırasında beklenmeyen hata oluştu.");
                 return ApiResult<UnifiedReceiptResultDto>.Fail("Birleşik fiş işlemi sırasında beklenmeyen bir hata oluştu.", statusCode: 500);
+            }
+            finally
+            {
+                _db.SuppressDashboardNotifications = false;
             }
         }
         public async Task<ApiResult<PagedResult<SaleListDto>>> GetPagedAsync(
@@ -295,6 +342,10 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
 
             foreach (var item in dto.SaleItems!)
             {
+                PositiveNumberGuard.RequirePositive(nameof(item.Quantity), item.Quantity);
+                PositiveNumberGuard.RequirePositive(nameof(item.TotalWeightGram), item.TotalWeightGram);
+                PositiveNumberGuard.RequirePositive(nameof(item.SoldPrice), item.SoldPrice);
+
                 if (item.StockId == Guid.Empty)
                     throw new InvalidOperationException("Geçersiz StockId.");
                 if (item.Quantity <= 0)
@@ -380,6 +431,17 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
 
             foreach (var item in dto.PurchaseItems!)
             {
+                PositiveNumberGuard.RequirePositive(nameof(item.ProductVariantId), item.ProductVariantId);
+                PositiveNumberGuard.RequirePositive(nameof(item.BranchId), item.BranchId);
+                PositiveNumberGuard.RequirePositive(nameof(item.Quantity), item.Quantity);
+                PositiveNumberGuard.RequirePositive(nameof(item.TotalWeightGram), item.TotalWeightGram);
+                PositiveNumberGuard.RequirePositive(nameof(item.PurchasePrice), item.PurchasePrice);
+                PositiveNumberGuard.RequirePositive(nameof(item.Gram), item.Gram);
+                PositiveNumberGuard.RequirePositive(nameof(item.Thickness), item.Thickness);
+                PositiveNumberGuard.RequirePositive(nameof(item.Width), item.Width);
+                PositiveNumberGuard.RequirePositive(nameof(item.Carat), item.Carat);
+                PositiveNumberGuard.RequirePositive(nameof(item.WorkmanshipMilyem), item.WorkmanshipMilyem);
+
                 if (item.ProductVariantId <= 0)
                     throw new InvalidOperationException("Alış kaleminde ProductVariantId zorunludur.");
                 var targetBranchId = item.BranchId > 0 ? item.BranchId : branchId;

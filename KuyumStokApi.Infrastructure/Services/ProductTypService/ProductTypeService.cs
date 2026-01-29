@@ -1,8 +1,9 @@
-﻿using KuyumStokApi.Application.Common;
+using KuyumStokApi.Application.Common;
 using KuyumStokApi.Application.DTOs.ProductType;
 using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Persistence.Contexts;
 using Microsoft.EntityFrameworkCore;
+using KuyumStokApi.Infrastructure.Validation;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -105,6 +106,15 @@ namespace KuyumStokApi.Infrastructure.Services.ProductTypService
 
         public async Task<ApiResult<ProductTypeDto>> CreateAsync(ProductTypeCreateDto dto, CancellationToken ct = default)
         {
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.CategoryId), dto.CategoryId);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<ProductTypeDto>.Fail(ex.Message, statusCode: 400);
+            }
+
             var now = DateTime.UtcNow;
 
             // Aynı category + name kombinasyonuna karşı basit kontrol (opsiyonel)
@@ -149,6 +159,15 @@ namespace KuyumStokApi.Infrastructure.Services.ProductTypService
             var entity = await _db.ProductTypes.FirstOrDefaultAsync(p => p.Id == id, ct);
             if (entity is null)
                 return ApiResult<bool>.Fail("Ürün türü bulunamadı", statusCode: 404);
+
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.CategoryId), dto.CategoryId);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<bool>.Fail(ex.Message, statusCode: 400);
+            }
 
             // Duplicate guard (opsiyonel)
             var dup = await _db.ProductTypes

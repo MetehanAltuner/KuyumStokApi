@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -37,8 +38,8 @@ namespace KuyumStokApi.Application.DTOs.Banks
 
     /// <summary>Listeleme için filtre + sayfalama parametreleri.</summary>
     public sealed record BankFilter(
-        int Page = 1,
-        int PageSize = 20,
+        [Range(1, int.MaxValue, ErrorMessage = "Page must be greater than 0.")] int Page = 1,
+        [Range(1, int.MaxValue, ErrorMessage = "PageSize must be greater than 0.")] int PageSize = 20,
         string? Query = null,
         bool? IsActive = null,
         bool IncludeDeleted = false,

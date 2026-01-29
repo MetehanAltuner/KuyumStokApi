@@ -1,4 +1,4 @@
-﻿using KuyumStokApi.Application.Common;
+using KuyumStokApi.Application.Common;
 using KuyumStokApi.Application.DTOs.Auth;
 using KuyumStokApi.Application.DTOs.Users;
 using KuyumStokApi.Application.Interfaces.Services;
@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using KuyumStokApi.Infrastructure.Validation;
 
 namespace KuyumStokApi.Infrastructure.Services.UserService
 {
@@ -36,6 +37,9 @@ namespace KuyumStokApi.Infrastructure.Services.UserService
         public async Task<Users> RegisterAsync(RegisterDto dto)
         {
             if (dto is null) throw new ArgumentNullException(nameof(dto));
+
+            PositiveNumberGuard.RequirePositive(nameof(dto.RoleId), dto.RoleId);
+            PositiveNumberGuard.RequirePositive(nameof(dto.BranchId), dto.BranchId);
 
             // --- Username oluşturma veya doğrulama ---
             string username;
@@ -295,6 +299,16 @@ namespace KuyumStokApi.Infrastructure.Services.UserService
                                         .FirstOrDefaultAsync(u => u.Id == id, ct);
             if (entity is null)
                 return ApiResult<UserDto>.Fail("Kullanıcı bulunamadı.", statusCode: 404);
+
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.RoleId), dto.RoleId);
+                PositiveNumberGuard.RequirePositive(nameof(dto.BranchId), dto.BranchId);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<UserDto>.Fail(ex.Message, statusCode: 400);
+            }
 
             if (dto.RoleId.HasValue && !await _db.Roles.AnyAsync(r => r.Id == dto.RoleId.Value, ct))
                 return ApiResult<UserDto>.Fail("Geçersiz rol.", statusCode: 400);

@@ -112,6 +112,8 @@ namespace KuyumStokApi.Application.DTOs.Dashboard
         public decimal TotalSales { get; set; }
         public decimal TotalCost { get; set; }
         public decimal TotalProfit { get; set; }
+        public decimal TotalLoss { get; set; }
+        public decimal NetTotal { get; set; }
         public decimal TotalProfitPercentage { get; set; }
     }
 

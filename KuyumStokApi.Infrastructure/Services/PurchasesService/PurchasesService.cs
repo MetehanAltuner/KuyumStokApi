@@ -4,6 +4,7 @@ using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Domain.Entities;
 using KuyumStokApi.Persistence.Contexts;
 using Microsoft.EntityFrameworkCore;
+using KuyumStokApi.Infrastructure.Validation;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,6 +21,18 @@ namespace KuyumStokApi.Infrastructure.Services.PurchasesService
 
         public async Task<ApiResult<PurchaseResultDto>> CreateAsync(PurchaseCreateDto dto, CancellationToken ct = default)
         {
+            try
+            {
+                PositiveNumberGuard.RequirePositive(nameof(dto.UserId), dto.UserId);
+                PositiveNumberGuard.RequirePositive(nameof(dto.BranchId), dto.BranchId);
+                PositiveNumberGuard.RequirePositive(nameof(dto.CustomerId), dto.CustomerId);
+                PositiveNumberGuard.RequirePositive(nameof(dto.PaymentMethodId), dto.PaymentMethodId);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ApiResult<PurchaseResultDto>.Fail(ex.Message, statusCode: 400);
+            }
+
             if (dto.Items.Count == 0)
                 return ApiResult<PurchaseResultDto>.Fail("Kalem yok.", statusCode: 400);
 
@@ -39,6 +52,20 @@ namespace KuyumStokApi.Infrastructure.Services.PurchasesService
 
             foreach (var i in dto.Items)
             {
+                try
+                {
+                    PositiveNumberGuard.RequirePositive(nameof(i.ProductVariantId), i.ProductVariantId);
+                    PositiveNumberGuard.RequirePositive(nameof(i.BranchId), i.BranchId);
+                    PositiveNumberGuard.RequirePositive(nameof(i.Quantity), i.Quantity);
+                    PositiveNumberGuard.RequirePositive(nameof(i.PurchasePrice), i.PurchasePrice);
+                    PositiveNumberGuard.RequirePositive(nameof(i.TotalWeightGram), i.TotalWeightGram);
+                    PositiveNumberGuard.RequirePositive(nameof(i.WorkmanshipMilyem), i.WorkmanshipMilyem);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return ApiResult<PurchaseResultDto>.Fail(ex.Message, statusCode: 400);
+                }
+
                 if (i.TotalWeightGram <= 0)
                     return ApiResult<PurchaseResultDto>.Fail("TotalWeightGram 0'dan büyük olmalıdır.", statusCode: 400);
 

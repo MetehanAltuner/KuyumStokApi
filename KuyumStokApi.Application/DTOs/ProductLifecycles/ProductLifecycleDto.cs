@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -27,6 +28,7 @@ namespace KuyumStokApi.Application.DTOs.ProductLifecycles
     public sealed class ProductLifecycleCreateDto
     {
         public Guid StockId { get; set; }
+        [Range(1, int.MaxValue, ErrorMessage = "ActionId must be greater than 0.")]
         public int ActionId { get; set; }
         public string? Note { get; set; }
         // user_id'i servis CurrentUserService ile dolduracağız
@@ -35,11 +37,15 @@ namespace KuyumStokApi.Application.DTOs.ProductLifecycles
 
     public sealed class ProductLifecycleFilter
     {
+        [Range(1, int.MaxValue, ErrorMessage = "Page must be greater than 0.")]
         public int Page { get; set; } = 1;
+        [Range(1, int.MaxValue, ErrorMessage = "PageSize must be greater than 0.")]
         public int PageSize { get; set; } = 20;
 
         public Guid? StockId { get; set; }
+        [Range(1, int.MaxValue, ErrorMessage = "ActionId must be greater than 0.")]
         public int? ActionId { get; set; }
+        [Range(1, int.MaxValue, ErrorMessage = "UserId must be greater than 0.")]
         public int? UserId { get; set; }
         public DateTime? FromUtc { get; set; }
         public DateTime? ToUtc { get; set; }

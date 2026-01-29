@@ -87,6 +87,30 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
             }, ct);
         }
 
+        public async Task NotifySaleCommittedAsync(
+            int? saleId,
+            int? purchaseId,
+            CancellationToken ct = default)
+        {
+            if (_hubContext == null)
+            {
+                _logger.LogWarning("Dashboard broadcast atlandı (hub yok). SaleId={SaleId}, PurchaseId={PurchaseId}", saleId, purchaseId);
+                return;
+            }
+
+            var affectedDashboards = new HashSet<string> { "LiveCounters", "DailySummary", "Anomalies" };
+
+            try
+            {
+                await BroadcastAffectedDashboardsAsync(affectedDashboards, ct);
+                _logger.LogInformation("Dashboard broadcast tamamlandı (sale commit). SaleId={SaleId}, PurchaseId={PurchaseId}", saleId, purchaseId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Dashboard broadcast başarısız (sale commit). SaleId={SaleId}, PurchaseId={PurchaseId}", saleId, purchaseId);
+            }
+        }
+
         private async Task BroadcastAffectedDashboardsAsync(
             HashSet<string> dashboards, 
             CancellationToken ct)

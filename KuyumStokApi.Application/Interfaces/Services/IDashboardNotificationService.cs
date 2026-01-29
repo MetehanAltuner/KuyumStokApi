@@ -15,5 +15,13 @@ namespace KuyumStokApi.Application.Interfaces.Services
         Task NotifyDashboardChangesAsync(
             IEnumerable<string> changedEntityTypes, 
             CancellationToken ct = default);
+
+        /// <summary>
+        /// Satış commit sonrası dashboard broadcast'lerini tetikler
+        /// </summary>
+        Task NotifySaleCommittedAsync(
+            int? saleId,
+            int? purchaseId,
+            CancellationToken ct = default);
     }
 }

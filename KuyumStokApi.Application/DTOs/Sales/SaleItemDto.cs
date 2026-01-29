@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using KuyumStokApi.Application.Validation.Attributes;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -10,8 +12,11 @@ namespace KuyumStokApi.Application.DTOs.Sales
     public sealed class SaleItemDto
     {
         public Guid StockId { get; set; }         // hangi stok satılıyor
+        [Range(1, int.MaxValue, ErrorMessage = "Quantity must be greater than 0.")]
         public int Quantity { get; set; }        // -adet
+        [GreaterThanZero(ErrorMessage = "SoldPrice must be greater than 0.")]
         public decimal SoldPrice { get; set; }   // detay tablosu için
+        [GreaterThanZero(ErrorMessage = "TotalWeightGram must be greater than 0.")]
         public decimal TotalWeightGram { get; set; } // satır toplam ağırlık
     }
 
@@ -38,12 +43,14 @@ namespace KuyumStokApi.Application.DTOs.Sales
         public decimal PosAmount { get; set; }
 
         /// <summary>POS ödemesi için banka seçimi (Foreign Key → Banks)</summary>
+        [Range(1, int.MaxValue, ErrorMessage = "POS_BankId must be greater than 0.")]
         public int? POS_BankId { get; set; }
 
         /// <summary>POS komisyon oranı (örn: 0.025 = %2.5)</summary>
         public decimal? POS_CommissionRate { get; set; }
 
         /// <summary>Toplam satış tutarı (Items'ların toplamı, doğrulama için)</summary>
+        [GreaterThanZero(ErrorMessage = "TotalAmount must be greater than 0.")]
         public decimal TotalAmount { get; set; }
 
         // NOT: UserId ve BranchId artık CurrentUser'dan otomatik alınacak!
@@ -58,12 +65,18 @@ namespace KuyumStokApi.Application.DTOs.Sales
     }
     public sealed class SaleFilter
     {
+        [Range(1, int.MaxValue, ErrorMessage = "Page must be greater than 0.")]
         public int Page { get; init; } = 1;
+        [Range(1, int.MaxValue, ErrorMessage = "PageSize must be greater than 0.")]
         public int PageSize { get; init; } = 20;
 
+        [Range(1, int.MaxValue, ErrorMessage = "BranchId must be greater than 0.")]
         public int? BranchId { get; init; }
+        [Range(1, int.MaxValue, ErrorMessage = "UserId must be greater than 0.")]
         public int? UserId { get; init; }
+        [Range(1, int.MaxValue, ErrorMessage = "CustomerId must be greater than 0.")]
         public int? CustomerId { get; init; }
+        [Range(1, int.MaxValue, ErrorMessage = "PaymentMethodId must be greater than 0.")]
         public int? PaymentMethodId { get; init; }
 
         public DateTime? FromUtc { get; init; }

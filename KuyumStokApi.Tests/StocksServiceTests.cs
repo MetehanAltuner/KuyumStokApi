@@ -44,6 +44,7 @@ namespace KuyumStokApi.Tests
                 BranchId = 1,
                 Quantity = 1,
                 TotalWeightGram = 1m,
+                PurchasePrice = 1m,
                 GenerateQrCode = true
             });
 
