@@ -1,4 +1,4 @@
-﻿using KuyumStokApi.Application.Common;
+using KuyumStokApi.Application.Common;
 using KuyumStokApi.Application.DTOs.Customers;
 using KuyumStokApi.Application.Interfaces.Services;
 using KuyumStokApi.Persistence.Contexts;
@@ -12,6 +12,10 @@ using System.Threading.Tasks;
 namespace KuyumStokApi.Infrastructure.Services.CustomersService
 {
     /// <summary>Müşteri operasyonları (listele, detay, ekle, güncelle, sil).</summary>
+    // Not: nationalId null dönüyordu çünkü CustomersService içinde create/update ve
+    // DTO dönüş/projeksiyonlarında NationalId eşlemesi yoktu. Bu dosyada eşlemeler
+    // güncellendi. Hızlı doğrulama: Swagger'da POST /api/Customers ile nationalId
+    // gönderip yanıtta geldiğini ve GET /api/Customers listesinde dolu olduğunu kontrol edin.
     public sealed class CustomersService : ICustomersService
     {
         private readonly AppDbContext _db;
@@ -54,6 +58,7 @@ namespace KuyumStokApi.Infrastructure.Services.CustomersService
                     Name = x.Name!,
                     Phone = x.Phone,
                     Note = x.Note,
+                    NationalId = x.NationalId,
                     CreatedAt = x.CreatedAt,
                     UpdatedAt = x.UpdatedAt,
                     IsActive = x.IsActive
@@ -71,22 +76,74 @@ namespace KuyumStokApi.Infrastructure.Services.CustomersService
             return ApiResult<PagedResult<CustomerDto>>.Ok(paged, "Liste getirildi", 200);
         }
 
-        public async Task<ApiResult<CustomerDto>> GetByIdAsync(int id, CancellationToken ct = default)
+        public async Task<ApiResult<CustomerDetailResponseDto>> GetByIdAsync(int id, CancellationToken ct = default)
         {
-            var x = await _db.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
-            if (x is null) return ApiResult<CustomerDto>.Fail("Müşteri bulunamadı", statusCode: 404);
+            var customer = await _db.Customers.AsNoTracking()
+                .Where(c => c.Id == id)
+                .Select(x => new CustomerDto
+                {
+                    Id = x.Id,
+                    Name = x.Name!,
+                    Phone = x.Phone,
+                    Note = x.Note,
+                    NationalId = x.NationalId,
+                    CreatedAt = x.CreatedAt,
+                    UpdatedAt = x.UpdatedAt,
+                    IsActive = x.IsActive
+                })
+                .FirstOrDefaultAsync(ct);
 
-            var dto = new CustomerDto
+            if (customer is null)
+                return ApiResult<CustomerDetailResponseDto>.Fail("Müşteri bulunamadı", statusCode: 404);
+
+            var purchases = await (from p in _db.Purchases.AsNoTracking()
+                                   join b in _db.Branches.AsNoTracking() on p.BranchId equals b.Id into jb
+                                   from b in jb.DefaultIfEmpty()
+                                   join pm in _db.PaymentMethods.AsNoTracking() on p.PaymentMethodId equals pm.Id into jpm
+                                   from pm in jpm.DefaultIfEmpty()
+                                   where p.CustomerId == id
+                                   orderby p.CreatedAt descending
+                                   select new CustomerPurchaseDto
+                                   {
+                                       Id = p.Id,
+                                       PurchaseDate = p.CreatedAt,
+                                       TotalAmount = _db.PurchaseDetails
+                                           .Where(d => d.PurchaseId == p.Id)
+                                           .Sum(d => (d.PurchasePrice ?? 0) * (decimal?)(d.Quantity ?? 0)) ?? 0m,
+                                       PaymentMethodId = p.PaymentMethodId,
+                                       PaymentMethodName = pm != null ? pm.Name : null,
+                                       BranchId = p.BranchId,
+                                       BranchName = b != null ? b.Name : null
+                                   }).ToListAsync(ct);
+
+            var sales = await (from s in _db.Sales.AsNoTracking()
+                               join b in _db.Branches.AsNoTracking() on s.BranchId equals b.Id into jb
+                               from b in jb.DefaultIfEmpty()
+                               join pm in _db.PaymentMethods.AsNoTracking() on s.PaymentMethodId equals pm.Id into jpm
+                               from pm in jpm.DefaultIfEmpty()
+                               where s.CustomerId == id
+                               orderby s.CreatedAt descending
+                               select new CustomerSaleDto
+                               {
+                                   Id = s.Id,
+                                   SaleDate = s.CreatedAt,
+                                   TotalAmount = _db.SaleDetails
+                                       .Where(d => d.SaleId == s.Id)
+                                       .Sum(d => (d.SoldPrice ?? 0) * (decimal?)(d.Quantity ?? 0)) ?? 0m,
+                                   PaymentMethodId = s.PaymentMethodId,
+                                   PaymentMethodName = pm != null ? pm.Name : null,
+                                   BranchId = s.BranchId,
+                                   BranchName = b != null ? b.Name : null
+                               }).ToListAsync(ct);
+
+            var dto = new CustomerDetailResponseDto
             {
-                Id = x.Id,
-                Name = x.Name!,
-                Phone = x.Phone,
-                Note = x.Note,
-                CreatedAt = x.CreatedAt,
-                UpdatedAt = x.UpdatedAt,
-                IsActive = x.IsActive
+                Customer = customer,
+                Purchases = purchases,
+                Sales = sales
             };
-            return ApiResult<CustomerDto>.Ok(dto, "Bulundu", 200);
+
+            return ApiResult<CustomerDetailResponseDto>.Ok(dto, "Bulundu", 200);
         }
 
         public async Task<ApiResult<CustomerDto>> CreateAsync(CustomerCreateDto dto, CancellationToken ct = default)
@@ -97,6 +154,7 @@ namespace KuyumStokApi.Infrastructure.Services.CustomersService
                 Name = dto.Name,
                 Phone = dto.Phone,
                 Note = dto.Note,
+                NationalId = dto.NationalId,
                 CreatedAt = now,
                 UpdatedAt = now,
                 IsActive = true
@@ -111,6 +169,7 @@ namespace KuyumStokApi.Infrastructure.Services.CustomersService
                 Name = e.Name!,
                 Phone = e.Phone,
                 Note = e.Note,
+                NationalId = e.NationalId,
                 CreatedAt = e.CreatedAt,
                 UpdatedAt = e.UpdatedAt,
                 IsActive = e.IsActive
@@ -126,6 +185,7 @@ namespace KuyumStokApi.Infrastructure.Services.CustomersService
             e.Name = dto.Name;
             e.Phone = dto.Phone;
             e.Note = dto.Note;
+            e.NationalId = dto.NationalId;
             e.IsActive = dto.IsActive;
             e.UpdatedAt = DateTime.UtcNow;
 

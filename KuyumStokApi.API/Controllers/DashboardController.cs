@@ -80,6 +80,19 @@ namespace KuyumStokApi.API.Controllers
 
 
         /// <summary>
+        /// Günlük en çok satan ürün trendi (son N gün)
+        /// </summary>
+        /// <param name="days">Kaç gün (default: 7, min: 1, max: 90)</param>
+        /// <param name="ct">İptal token'ı</param>
+        [HttpGet("daily-top-selling")]
+        public async Task<IActionResult> GetDailyTopSelling([FromQuery] int days = 7, CancellationToken ct = default)
+        {
+            var result = await _dashboardService.GetDailyTopSellingTrendAsync(days, ct);
+            return StatusCode(result.StatusCode, result);
+        }
+
+
+        /// <summary>
         /// Kar-Zarar tablosu (dönemsel kar-zarar analizi)
         /// </summary>
         /// <param name="period">Dönem: day, week, month (default: week)</param>
@@ -88,6 +101,24 @@ namespace KuyumStokApi.API.Controllers
         public async Task<IActionResult> GetProfitLoss([FromQuery] string period = "week", CancellationToken ct = default)
         {
             var result = await _dashboardService.GetProfitLossAsync(period, ct);
+            return StatusCode(result.StatusCode, result);
+        }
+
+        /// <summary>
+        /// Ürün varyantı bazlı satış pasta grafiği (son N gün)
+        /// </summary>
+        /// <param name="storeId">Mağaza Id (zorunlu)</param>
+        /// <param name="branchId">Şube Id (opsiyonel; verilirse sadece o şube, verilmezse mağazanın tüm şubeleri)</param>
+        /// <param name="days">Kaç gün (default: 7, min: 1, max: 90)</param>
+        /// <param name="ct">İptal token'ı</param>
+        [HttpGet("sales-pie")]
+        public async Task<IActionResult> GetSalesPieChart(
+            [FromQuery] int storeId,
+            [FromQuery] int? branchId = null,
+            [FromQuery] int days = 7,
+            CancellationToken ct = default)
+        {
+            var result = await _dashboardService.GetSalesPieChartAsync(storeId, branchId, days, ct);
             return StatusCode(result.StatusCode, result);
         }
 

@@ -71,6 +71,27 @@ namespace KuyumStokApi.Application.DTOs.Dashboard
     }
 
     /// <summary>
+    /// Günlük en çok satan ürün trendi için DTO
+    /// </summary>
+    public sealed class DailyTopSellingTrendItemDto
+    {
+        public string Date { get; set; } = string.Empty; // yyyy-MM-dd
+        public string? TopProduct { get; set; }
+        public int Quantity { get; set; }
+    }
+
+    /// <summary>
+    /// Satış pasta grafiği item DTO (ürün varyantı bazlı)
+    /// </summary>
+    public sealed class SalesPieChartItemDto
+    {
+        public int ProductVariantId { get; set; }
+        public string ProductVariantName { get; set; } = string.Empty;
+        public decimal TotalQuantity { get; set; }
+        public decimal TotalAmount { get; set; }
+    }
+
+    /// <summary>
     /// Günlük iş yükü tahmini için DTO
     /// </summary>
     public sealed class WorkloadEstimateDto
@@ -115,6 +136,7 @@ namespace KuyumStokApi.Application.DTOs.Dashboard
         public decimal TotalLoss { get; set; }
         public decimal NetTotal { get; set; }
         public decimal TotalProfitPercentage { get; set; }
+        public decimal TotalLossPercentage { get; set; }
     }
 
     /// <summary>

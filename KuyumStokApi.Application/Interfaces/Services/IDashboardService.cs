@@ -17,6 +17,8 @@ namespace KuyumStokApi.Application.Interfaces.Services
         Task<ApiResult<MonthlyTargetDto>> GetMonthlyTargetAsync(CancellationToken ct = default);
         Task<ApiResult<List<ReminderDto>>> GetRemindersAsync(CancellationToken ct = default);
         Task<ApiResult<List<TopProductDto>>> GetTopProductsAsync(int limit = 5, string period = "week", CancellationToken ct = default);
+        Task<ApiResult<List<DailyTopSellingTrendItemDto>>> GetDailyTopSellingTrendAsync(int days, CancellationToken ct = default);
+        Task<ApiResult<List<SalesPieChartItemDto>>> GetSalesPieChartAsync(int storeId, int? branchId, int days, CancellationToken ct = default);
         Task<ApiResult<WorkloadEstimateDto>> GetWorkloadEstimateAsync(CancellationToken ct = default);
         Task<ApiResult<BranchComparisonDto>> GetBranchComparisonAsync(CancellationToken ct = default);
         Task<ApiResult<ProfitLossDto>> GetProfitLossAsync(string period = "week", CancellationToken ct = default);

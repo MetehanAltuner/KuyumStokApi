@@ -588,6 +588,193 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
             }
         }
 
+        public async Task<ApiResult<List<DailyTopSellingTrendItemDto>>> GetDailyTopSellingTrendAsync(int days, CancellationToken ct = default)
+        {
+            if (days < 1 || days > 90)
+                return ApiResult<List<DailyTopSellingTrendItemDto>>.Fail("Gün sayısı 1-90 aralığında olmalıdır.", statusCode: 400);
+
+            try
+            {
+                await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                var scope = await ResolveScopeAsync(db, ct);
+                if (!scope.AccessibleBranchIds.Any())
+                    return ApiResult<List<DailyTopSellingTrendItemDto>>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
+
+                var now = DateTime.UtcNow;
+                var todayStart = new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc);
+                var rangeStart = todayStart.AddDays(-(days - 1));
+                var rangeEndExclusive = todayStart.AddDays(1);
+
+                var saleDetailsQuery = db.SaleDetails.AsNoTracking();
+                var salesQuery = db.Sales.AsNoTracking();
+
+                var detailCanceled = BuildCancellationPredicate<SaleDetails>(db);
+                if (detailCanceled != null)
+                    saleDetailsQuery = saleDetailsQuery.Where(NegatePredicate(detailCanceled));
+
+                var saleCanceled = BuildCancellationPredicate<Sales>(db);
+                if (saleCanceled != null)
+                    salesQuery = salesQuery.Where(NegatePredicate(saleCanceled));
+
+                var dailyProductTotals = await
+                    (from d in saleDetailsQuery
+                     join s in salesQuery on d.SaleId equals s.Id
+                     where s.BranchId != null && scope.AccessibleBranchIds.Contains(s.BranchId.Value)
+                     let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
+                     where created >= rangeStart && created < rangeEndExclusive
+                     join st in db.Stocks.AsNoTracking() on d.StockId equals st.Id into js
+                     from st in js.DefaultIfEmpty()
+                     join pv in db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id into jpv
+                     from pv in jpv.DefaultIfEmpty()
+                     where pv == null || (!pv.IsDeleted && pv.IsActive)
+                     let day = new DateTime(created.Year, created.Month, created.Day, 0, 0, 0, DateTimeKind.Utc)
+                     select new
+                     {
+                         Day = day,
+                         ProductVariantId = st != null ? st.ProductVariantId : pv != null ? (int?)pv.Id : null,
+                         ProductName = pv != null ? pv.Name : st != null ? st.Barcode : null,
+                         Quantity = d.Quantity ?? 0
+                     })
+                    .GroupBy(x => new { x.Day, x.ProductVariantId, x.ProductName })
+                    .Select(g => new
+                    {
+                        g.Key.Day,
+                        g.Key.ProductVariantId,
+                        g.Key.ProductName,
+                        Quantity = g.Sum(x => x.Quantity)
+                    })
+                    .ToListAsync(ct);
+
+                var topByDay = dailyProductTotals
+                    .GroupBy(x => x.Day)
+                    .ToDictionary(
+                        g => g.Key,
+                        g => g.OrderByDescending(x => x.Quantity)
+                              .ThenBy(x => x.ProductVariantId ?? int.MaxValue)
+                              .First());
+
+                var items = new List<DailyTopSellingTrendItemDto>(days);
+                for (var i = 0; i < days; i++)
+                {
+                    var day = rangeStart.AddDays(i);
+                    topByDay.TryGetValue(day, out var top);
+
+                    items.Add(new DailyTopSellingTrendItemDto
+                    {
+                        Date = day.ToString("yyyy-MM-dd"),
+                        TopProduct = top?.ProductName,
+                        Quantity = top?.Quantity ?? 0
+                    });
+                }
+
+                return ApiResult<List<DailyTopSellingTrendItemDto>>.Ok(items, "Günlük en çok satan ürün trendi hazırlandı", 200);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Günlük en çok satan ürün trendi hesaplanırken hata oluştu");
+                return ApiResult<List<DailyTopSellingTrendItemDto>>.Fail("Günlük en çok satan ürün trendi hesaplanırken bir hata oluştu.", statusCode: 500);
+            }
+        }
+
+        public async Task<ApiResult<List<SalesPieChartItemDto>>> GetSalesPieChartAsync(int storeId, int? branchId, int days, CancellationToken ct = default)
+        {
+            if (storeId <= 0)
+                return ApiResult<List<SalesPieChartItemDto>>.Fail("StoreId 0'dan büyük olmalıdır.", statusCode: 400);
+
+            if (days < 1 || days > 90)
+                return ApiResult<List<SalesPieChartItemDto>>.Fail("Gün sayısı 1-90 aralığında olmalıdır.", statusCode: 400);
+
+            try
+            {
+                await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                var scope = await ResolveScopeAsync(db, ct);
+                if (!scope.AccessibleBranchIds.Any())
+                    return ApiResult<List<SalesPieChartItemDto>>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
+
+                List<int> targetBranchIds;
+                if (branchId.HasValue)
+                {
+                    var belongsToStore = await db.Branches.AsNoTracking()
+                        .Where(b => b.Id == branchId.Value && b.StoreId == storeId && !b.IsDeleted)
+                        .AnyAsync(ct);
+
+                    if (!belongsToStore)
+                        return ApiResult<List<SalesPieChartItemDto>>.Fail("Şube bu mağazaya ait değil.", statusCode: 400);
+
+                    if (!scope.AccessibleBranchIds.Contains(branchId.Value))
+                        return ApiResult<List<SalesPieChartItemDto>>.Fail("Bu şube için yetkiniz yok.", statusCode: 403);
+
+                    targetBranchIds = new List<int> { branchId.Value };
+                }
+                else
+                {
+                    var storeBranchIds = await db.Branches.AsNoTracking()
+                        .Where(b => b.StoreId == storeId && !b.IsDeleted)
+                        .Select(b => b.Id)
+                        .ToListAsync(ct);
+
+                    if (!storeBranchIds.Any())
+                        return ApiResult<List<SalesPieChartItemDto>>.Fail("Mağaza için şube bulunamadı.", statusCode: 400);
+
+                    targetBranchIds = storeBranchIds
+                        .Where(id => scope.AccessibleBranchIds.Contains(id))
+                        .ToList();
+
+                    if (!targetBranchIds.Any())
+                        return ApiResult<List<SalesPieChartItemDto>>.Fail("Bu mağaza için görüntüleme yetkiniz yok.", statusCode: 403);
+                }
+
+                var now = DateTime.UtcNow;
+                var start = now.AddDays(-days);
+
+                var saleDetailsQuery = db.SaleDetails.AsNoTracking();
+                var salesQuery = db.Sales.AsNoTracking();
+
+                var detailCanceled = BuildCancellationPredicate<SaleDetails>(db);
+                if (detailCanceled != null)
+                    saleDetailsQuery = saleDetailsQuery.Where(NegatePredicate(detailCanceled));
+
+                var saleCanceled = BuildCancellationPredicate<Sales>(db);
+                if (saleCanceled != null)
+                    salesQuery = salesQuery.Where(NegatePredicate(saleCanceled));
+
+                var items = await
+                    (from d in saleDetailsQuery
+                     join s in salesQuery on d.SaleId equals s.Id
+                     where s.BranchId != null && targetBranchIds.Contains(s.BranchId.Value)
+                     let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
+                     where created >= start && created <= now
+                     join st in db.Stocks.AsNoTracking() on d.StockId equals st.Id into js
+                     from st in js.DefaultIfEmpty()
+                     join pv in db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id into jpv
+                     from pv in jpv.DefaultIfEmpty()
+                     where pv == null || (!pv.IsDeleted && pv.IsActive)
+                     group d by new
+                     {
+                         ProductVariantId = st != null ? st.ProductVariantId : pv != null ? (int?)pv.Id : null,
+                         ProductVariantName = pv != null ? pv.Name : st != null ? st.Barcode : "Tanımsız"
+                     }
+                    into g
+                     where g.Key.ProductVariantId != null
+                     select new SalesPieChartItemDto
+                     {
+                         ProductVariantId = g.Key.ProductVariantId!.Value,
+                         ProductVariantName = g.Key.ProductVariantName ?? "Tanımsız",
+                         TotalQuantity = g.Sum(x => x.Quantity ?? 0),
+                         TotalAmount = Math.Round(g.Sum(x => (x.Quantity ?? 0) * (x.SoldPrice ?? 0m)), 2)
+                     })
+                    .OrderByDescending(x => x.TotalAmount)
+                    .ToListAsync(ct);
+
+                return ApiResult<List<SalesPieChartItemDto>>.Ok(items, "Satış pasta grafiği hazırlandı", 200);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Satış pasta grafiği hesaplanırken hata oluştu");
+                return ApiResult<List<SalesPieChartItemDto>>.Fail("Satış pasta grafiği hesaplanırken bir hata oluştu.", statusCode: 500);
+            }
+        }
+
         public async Task<ApiResult<WorkloadEstimateDto>> GetWorkloadEstimateAsync(CancellationToken ct = default)
         {
             try
@@ -1013,6 +1200,7 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 var totalCost = periodBuckets.Values.Sum(x => x.Cost);
                 var totalProfit = netTotal;
                 var totalProfitPercentage = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
+                var totalLossPercentage = totalSales > 0 ? (totalLoss / totalSales) * 100 : 0;
 
                 // Decimal değerleri 2 ondalık basamağa yuvarla
                 totalSales = Math.Round(totalSales, 2);
@@ -1021,6 +1209,7 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 totalLoss = Math.Round(totalLoss, 2);
                 netTotal = Math.Round(netTotal, 2);
                 totalProfitPercentage = Math.Round(totalProfitPercentage, 2);
+                totalLossPercentage = Math.Round(totalLossPercentage, 2);
 
                 var dto = new ProfitLossDto
                 {
@@ -1030,7 +1219,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                     TotalProfit = totalProfit,
                     TotalLoss = totalLoss,
                     NetTotal = netTotal,
-                    TotalProfitPercentage = totalProfitPercentage
+                    TotalProfitPercentage = totalProfitPercentage,
+                    TotalLossPercentage = totalLossPercentage
                 };
 
                 _logger.LogInformation(

@@ -1,4 +1,4 @@
-﻿using KuyumStokApi.Application.DTOs.Customers;
+using KuyumStokApi.Application.DTOs.Customers;
 using KuyumStokApi.Application.Interfaces.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -27,6 +27,8 @@ namespace KuyumStokApi.API.Controllers
         [Authorize]
         public async Task<IActionResult> GetById(int id, CancellationToken ct)
         {
+            // DEĞİŞİKLİK: müşteri detayı artık müşteri + tüm alış/satış listeleri döner.
+            // Swagger hızlı kontrol: GET /api/Customers/1 (örnek müşteriId).
             var r = await _svc.GetByIdAsync(id, ct);
             return StatusCode(r.StatusCode, r);
         }
