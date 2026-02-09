@@ -1,3 +1,4 @@
+using KuyumStokApi.Application.Common;
 using KuyumStokApi.Application.DTOs.Dashboard;
 using KuyumStokApi.Application.Hubs;
 using KuyumStokApi.Persistence.Contexts;
@@ -220,7 +221,7 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                     .SumAsync(ct);
 
                 var totalProfit = totalSales - totalCost;
-                var profitPercentage = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
+                var profitPercentage = totalSales > 0 ? ((totalProfit / totalSales) * 100).ToRoundedPercentInt() : 0;
 
                 // En çok satan ürün
                 var topSellingProduct = await (from d in db.SaleDetails.AsNoTracking()
@@ -306,14 +307,15 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
 
                 if (previousSales > 0)
                 {
-                    var dropPercentage = ((previousSales - recentSales) / (double)previousSales) * 100;
-                    if (dropPercentage > 30)
+                    var dropPercentage = ((previousSales - recentSales) / (decimal)previousSales) * 100m;
+                    var dropPercentageInt = dropPercentage.ToRoundedPercentInt();
+                    if (dropPercentageInt > 30)
                     {
                         anomalies.Add(new AnomalyDto
                         {
                             Type = "HighSalesDrop",
-                            Description = $"Satışlarda %{dropPercentage:F1} düşüş tespit edildi.",
-                            RiskScore = Math.Min(100, (int)dropPercentage)
+                            Description = $"Satışlarda %{dropPercentageInt} düşüş tespit edildi.",
+                            RiskScore = Math.Min(100, dropPercentageInt)
                         });
                     }
                 }

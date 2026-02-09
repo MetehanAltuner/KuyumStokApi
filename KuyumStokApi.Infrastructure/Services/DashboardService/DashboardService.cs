@@ -167,13 +167,12 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                     .SumAsync(ct);
 
                 var totalProfit = totalSales - totalCost;
-                var profitPercentage = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
+                var profitPercentage = totalSales > 0 ? ((totalProfit / totalSales) * 100).ToRoundedPercentInt() : 0;
 
                 // Decimal değerleri 2 ondalık basamağa yuvarla
                 totalSales = Math.Round(totalSales, 2);
                 totalCost = Math.Round(totalCost, 2);
                 totalProfit = Math.Round(totalProfit, 2);
-                profitPercentage = Math.Round(profitPercentage, 2);
 
                 // En çok satan ürün
                 var topSellingProduct = await (from d in db.SaleDetails.AsNoTracking()
@@ -392,13 +391,12 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                         targetAmount = monthlyTarget.TargetAmount;
                     }
                 }
-                var progressPercentage = targetAmount > 0 ? (currentAmount / targetAmount) * 100 : 0;
+                var progressPercentage = targetAmount > 0 ? ((currentAmount / targetAmount) * 100).ToRoundedPercentInt() : 0;
                 var remainingAmount = Math.Max(0, targetAmount - currentAmount);
 
                 // Decimal değerleri 2 ondalık basamağa yuvarla
                 currentAmount = Math.Round(currentAmount, 2);
                 targetAmount = Math.Round(targetAmount, 2);
-                progressPercentage = Math.Round(progressPercentage, 2);
                 remainingAmount = Math.Round(remainingAmount, 2);
 
                 var statusMessage = progressPercentage >= 75
@@ -926,13 +924,12 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                                             select sp.Amount)
                         .SumAsync(ct);
 
-                    var posPercentage = totalPayments > 0 ? (posPayments / totalPayments) * 100 : 0;
+                    var posPercentage = totalPayments > 0 ? ((posPayments / totalPayments) * 100).ToRoundedPercentInt() : 0;
 
                     // Decimal değerleri 2 ondalık basamağa yuvarla
                     totalSales = Math.Round(totalSales, 2);
                     totalCost = Math.Round(totalCost, 2);
                     totalProfit = Math.Round(totalProfit, 2);
-                    posPercentage = Math.Round(posPercentage, 2);
 
                     // Kritik stok sayısı
                     var criticalStockCount = await (from s in db.Stocks.AsNoTracking()
@@ -1160,13 +1157,12 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                     var sales = bucket.Sales;
                     var cost = bucket.Cost;
                     var profit = bucket.Net;
-                    var profitPercentage = sales > 0 ? (profit / sales) * 100 : 0;
+                        var profitPercentage = sales > 0 ? ((profit / sales) * 100).ToRoundedPercentInt() : 0;
 
                     // Decimal değerleri 2 ondalık basamağa yuvarla
                     sales = Math.Round(sales, 2);
                     cost = Math.Round(cost, 2);
                     profit = Math.Round(profit, 2);
-                    profitPercentage = Math.Round(profitPercentage, 2);
 
                     string trend = "stable";
                     if (previousProfit.HasValue)
@@ -1189,7 +1185,7 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                         Sales = sales,
                         Cost = cost,
                         Profit = profit,
-                        ProfitPercentage = profitPercentage,
+                            ProfitPercentage = profitPercentage,
                         Trend = trend
                     });
 
@@ -1199,8 +1195,8 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 var totalSales = periodBuckets.Values.Sum(x => x.Sales);
                 var totalCost = periodBuckets.Values.Sum(x => x.Cost);
                 var totalProfit = netTotal;
-                var totalProfitPercentage = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
-                var totalLossPercentage = totalSales > 0 ? (totalLoss / totalSales) * 100 : 0;
+                var totalProfitPercentage = totalSales > 0 ? ((totalProfit / totalSales) * 100).ToRoundedPercentInt() : 0;
+                var totalLossPercentage = totalSales > 0 ? ((totalLoss / totalSales) * 100).ToRoundedPercentInt() : 0;
 
                 // Decimal değerleri 2 ondalık basamağa yuvarla
                 totalSales = Math.Round(totalSales, 2);
@@ -1208,8 +1204,6 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                 totalProfit = Math.Round(totalProfit, 2);
                 totalLoss = Math.Round(totalLoss, 2);
                 netTotal = Math.Round(netTotal, 2);
-                totalProfitPercentage = Math.Round(totalProfitPercentage, 2);
-                totalLossPercentage = Math.Round(totalLossPercentage, 2);
 
                 var dto = new ProfitLossDto
                 {

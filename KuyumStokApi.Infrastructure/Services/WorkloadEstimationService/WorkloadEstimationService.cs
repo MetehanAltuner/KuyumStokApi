@@ -1,3 +1,4 @@
+using KuyumStokApi.Application.Common;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -93,8 +94,8 @@ namespace KuyumStokApi.Infrastructure.Services.WorkloadEstimationService
             if (averageCount <= 0)
                 return 0;
 
-            var percentage = (int)((estimatedCount / averageCount) * 100);
-            return Math.Max(0, percentage); // Sınırsız yüzde
+            var percentage = ((decimal)estimatedCount / (decimal)averageCount) * 100m;
+            return Math.Max(0, percentage.ToRoundedPercentInt()); // Sınırsız yüzde
         }
 
         /// <summary>

@@ -519,7 +519,7 @@ namespace KuyumStokApi.Infrastructure.Services.ReportsService
                 var baseScore = 100m * (0.7m * normSales + 0.3m * normTx);
                 var penalty = 100m * 0.5m * cancelRate;
                 var score = Math.Clamp(baseScore - penalty, 0m, 100m);
-                row.PerformanceScorePercent = (int)Math.Round(score);
+                row.PerformanceScorePercent = score.ToRoundedPercentInt();
             }
         }
 

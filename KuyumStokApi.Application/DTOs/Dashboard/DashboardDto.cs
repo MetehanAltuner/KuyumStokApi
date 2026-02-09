@@ -22,7 +22,7 @@ namespace KuyumStokApi.Application.DTOs.Dashboard
         public DateTime Date { get; set; }
         public decimal TotalSales { get; set; }
         public decimal TotalProfit { get; set; }
-        public decimal ProfitPercentage { get; set; }
+        public int ProfitPercentage { get; set; }
         public string TopSellingProduct { get; set; } = string.Empty;
         public int CriticalStockCount { get; set; }
         public string StatusMessage { get; set; } = string.Empty;
@@ -45,7 +45,7 @@ namespace KuyumStokApi.Application.DTOs.Dashboard
     {
         public decimal TargetAmount { get; set; }
         public decimal CurrentAmount { get; set; }
-        public decimal ProgressPercentage { get; set; }
+        public int ProgressPercentage { get; set; }
         public decimal RemainingAmount { get; set; }
         public string StatusMessage { get; set; } = string.Empty;
     }
@@ -119,7 +119,7 @@ namespace KuyumStokApi.Application.DTOs.Dashboard
         public decimal TotalSales { get; set; }
         public decimal TotalProfit { get; set; }
         public int ReceiptCount { get; set; }
-        public decimal PosPercentage { get; set; } // POS ödemelerinin toplam ödemeye oranı
+        public int PosPercentage { get; set; } // POS ödemelerinin toplam ödemeye oranı
         public int CriticalStockCount { get; set; }
         public string Trend { get; set; } = string.Empty; // "up", "down", "stable" (son 7 gün karşılaştırması)
     }
@@ -135,8 +135,8 @@ namespace KuyumStokApi.Application.DTOs.Dashboard
         public decimal TotalProfit { get; set; }
         public decimal TotalLoss { get; set; }
         public decimal NetTotal { get; set; }
-        public decimal TotalProfitPercentage { get; set; }
-        public decimal TotalLossPercentage { get; set; }
+        public int TotalProfitPercentage { get; set; }
+        public int TotalLossPercentage { get; set; }
     }
 
     /// <summary>
@@ -149,7 +149,7 @@ namespace KuyumStokApi.Application.DTOs.Dashboard
         public decimal Sales { get; set; }
         public decimal Cost { get; set; }
         public decimal Profit { get; set; }
-        public decimal ProfitPercentage { get; set; }
+        public int ProfitPercentage { get; set; }
         public string Trend { get; set; } = string.Empty; // "up", "down", "stable"
     }
 }
