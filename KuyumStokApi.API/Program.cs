@@ -9,10 +9,12 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.Filters;
 using System.Text;
+using System.Text.Json;
 using KuyumStokApi.Application.Interfaces.Auth;
 using KuyumStokApi.Application.Hubs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Mvc;
+using KuyumStokApi.API.Converters;
 static byte[] DecodeKey(string? b64)
 {
     if (string.IsNullOrWhiteSpace(b64))
@@ -27,6 +29,14 @@ var builder = WebApplication.CreateBuilder(args);
 var cfg = builder.Configuration;
 
 builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // Tüm DateTime ve DateTimeOffset değerlerini "yyyy-MM-dd HH:mm:ss" formatında UTC olarak serialize et
+        options.JsonSerializerOptions.Converters.Add(new UtcDateTimeJsonConverter());
+        options.JsonSerializerOptions.Converters.Add(new NullableUtcDateTimeJsonConverter());
+        options.JsonSerializerOptions.Converters.Add(new UtcDateTimeOffsetJsonConverter());
+        options.JsonSerializerOptions.Converters.Add(new NullableUtcDateTimeOffsetJsonConverter());
+    })
     .ConfigureApiBehaviorOptions(options =>
     {
         options.InvalidModelStateResponseFactory = context =>
@@ -40,7 +50,15 @@ builder.Services.AddControllers()
             return new BadRequestObjectResult(payload);
         };
     });
-builder.Services.AddSignalR();
+builder.Services.AddSignalR()
+    .AddJsonProtocol(options =>
+    {
+        // SignalR için de aynı DateTime formatını kullan
+        options.PayloadSerializerOptions.Converters.Add(new UtcDateTimeJsonConverter());
+        options.PayloadSerializerOptions.Converters.Add(new NullableUtcDateTimeJsonConverter());
+        options.PayloadSerializerOptions.Converters.Add(new UtcDateTimeOffsetJsonConverter());
+        options.PayloadSerializerOptions.Converters.Add(new NullableUtcDateTimeOffsetJsonConverter());
+    });
 
 // CORS yapılandırması (SignalR için gerekli)
 // DEV: Tüm origin'lere izin ver (production'da spesifik origin'ler belirtilmeli)

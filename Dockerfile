@@ -29,12 +29,17 @@ RUN ls -la /app/publish/wwwroot/ || echo "wwwroot klasörü bulunamadı!"
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
 
-# Temel araçları yükle (curl, ping) - minimal boyut için cache temizle
+# Temel araçları ve Türkiye saat dilimi için tzdata'yı yükle - minimal boyut için cache temizle
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     curl \
     iputils-ping \
+    tzdata \
+    && ln -snf /usr/share/zoneinfo/Europe/Istanbul /etc/localtime && echo "Europe/Istanbul" > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
+
+# Uygulama içinde varsayılan saat dilimini Türkiye saati (Europe/Istanbul) yap
+ENV TZ=Europe/Istanbul
 
 COPY --from=build /app/publish .
 

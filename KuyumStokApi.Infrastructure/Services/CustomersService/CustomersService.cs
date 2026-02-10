@@ -96,45 +96,189 @@ namespace KuyumStokApi.Infrastructure.Services.CustomersService
             if (customer is null)
                 return ApiResult<CustomerDetailResponseDto>.Fail("Müşteri bulunamadı", statusCode: 404);
 
+            // Purchases header bilgileri (User bilgileri ile)
             var purchases = await (from p in _db.Purchases.AsNoTracking()
                                    join b in _db.Branches.AsNoTracking() on p.BranchId equals b.Id into jb
                                    from b in jb.DefaultIfEmpty()
                                    join pm in _db.PaymentMethods.AsNoTracking() on p.PaymentMethodId equals pm.Id into jpm
                                    from pm in jpm.DefaultIfEmpty()
+                                   join u in _db.Users.AsNoTracking() on p.UserId equals u.Id into ju
+                                   from u in ju.DefaultIfEmpty()
                                    where p.CustomerId == id
                                    orderby p.CreatedAt descending
                                    select new CustomerPurchaseDto
                                    {
                                        Id = p.Id,
-                                       PurchaseDate = p.CreatedAt,
-                                       TotalAmount = _db.PurchaseDetails
-                                           .Where(d => d.PurchaseId == p.Id)
-                                           .Sum(d => (d.PurchasePrice ?? 0) * (decimal?)(d.Quantity ?? 0)) ?? 0m,
+                                       CreatedAt = p.CreatedAt,
+                                       TotalAmount = 0m, // Line items'tan hesaplanacak
                                        PaymentMethodId = p.PaymentMethodId,
                                        PaymentMethodName = pm != null ? pm.Name : null,
                                        BranchId = p.BranchId,
-                                       BranchName = b != null ? b.Name : null
+                                       BranchName = b != null ? b.Name : null,
+                                       UserId = p.UserId,
+                                       UserFullName = u != null && (!string.IsNullOrEmpty(u.FirstName) || !string.IsNullOrEmpty(u.LastName))
+                                           ? $"{u.FirstName ?? ""} {u.LastName ?? ""}".Trim()
+                                           : null,
+                                       LineItems = Array.Empty<CustomerPurchaseLineDto>()
                                    }).ToListAsync(ct);
 
+            // Sales header bilgileri (User bilgileri ile)
             var sales = await (from s in _db.Sales.AsNoTracking()
                                join b in _db.Branches.AsNoTracking() on s.BranchId equals b.Id into jb
                                from b in jb.DefaultIfEmpty()
                                join pm in _db.PaymentMethods.AsNoTracking() on s.PaymentMethodId equals pm.Id into jpm
                                from pm in jpm.DefaultIfEmpty()
+                               join u in _db.Users.AsNoTracking() on s.UserId equals u.Id into ju
+                               from u in ju.DefaultIfEmpty()
                                where s.CustomerId == id
                                orderby s.CreatedAt descending
                                select new CustomerSaleDto
                                {
                                    Id = s.Id,
-                                   SaleDate = s.CreatedAt,
-                                   TotalAmount = _db.SaleDetails
-                                       .Where(d => d.SaleId == s.Id)
-                                       .Sum(d => (d.SoldPrice ?? 0) * (decimal?)(d.Quantity ?? 0)) ?? 0m,
+                                   CreatedAt = s.CreatedAt,
+                                   TotalAmount = 0m, // Line items'tan hesaplanacak
                                    PaymentMethodId = s.PaymentMethodId,
                                    PaymentMethodName = pm != null ? pm.Name : null,
                                    BranchId = s.BranchId,
-                                   BranchName = b != null ? b.Name : null
+                                   BranchName = b != null ? b.Name : null,
+                                   UserId = s.UserId,
+                                   UserFullName = u != null && (!string.IsNullOrEmpty(u.FirstName) || !string.IsNullOrEmpty(u.LastName))
+                                       ? $"{u.FirstName ?? ""} {u.LastName ?? ""}".Trim()
+                                       : null,
+                                   LineItems = Array.Empty<CustomerSaleLineDto>()
                                }).ToListAsync(ct);
+
+            // Purchase line items (N+1 önlemek için tek query)
+            var purchaseIds = purchases.Select(p => p.Id).ToList();
+            var purchaseLinesData = new List<CustomerPurchaseLineItemDto>();
+
+            if (purchaseIds.Count > 0)
+            {
+                purchaseLinesData = await (from d in _db.PurchaseDetails.AsNoTracking()
+                                           join s in _db.Stocks.AsNoTracking() on d.StockId equals s.Id into js
+                                           from s in js.DefaultIfEmpty()
+                                           join pv in _db.ProductVariants.AsNoTracking() on (s != null ? s.ProductVariantId : null) equals pv.Id into jpv
+                                           from pv in jpv.DefaultIfEmpty()
+                                           join pt in _db.ProductTypes.AsNoTracking() on (pv != null ? pv.ProductTypeId : null) equals pt.Id into jpt
+                                           from pt in jpt.DefaultIfEmpty()
+                                           join pc in _db.ProductCategories.AsNoTracking() on (pt != null ? pt.CategoryId : null) equals pc.Id into jpc
+                                           from pc in jpc.DefaultIfEmpty()
+                                           where purchaseIds.Contains(d.PurchaseId ?? 0)
+                                           select new CustomerPurchaseLineItemDto
+                                           {
+                                               PurchaseId = d.PurchaseId ?? 0,
+                                               LineId = d.Id,
+                                               StockId = d.StockId,
+                                               Quantity = d.Quantity,
+                                               TotalWeightGram = d.TotalWeightGram,
+                                               PurchasePrice = d.PurchasePrice,
+                                               ProductVariantId = pv != null ? pv.Id : (int?)null,
+                                               ProductVariantName = pv != null ? pv.Name : null,
+                                               ProductTypeId = pt != null ? pt.Id : (int?)null,
+                                               ProductTypeName = pt != null ? pt.Name : null,
+                                               CategoryName = pc != null ? pc.Name : null,
+                                               Brand = pv != null ? pv.Brand : null,
+                                               Ayar = pv != null ? pv.Ayar : null,
+                                               Color = pv != null ? pv.Color : null
+                                           }).ToListAsync(ct);
+            }
+
+            // Sale line items (N+1 önlemek için tek query)
+            var saleIds = sales.Select(s => s.Id).ToList();
+            var saleLinesData = new List<CustomerSaleLineItemDto>();
+
+            if (saleIds.Count > 0)
+            {
+                saleLinesData = await (from d in _db.SaleDetails.AsNoTracking()
+                                       join s in _db.Stocks.AsNoTracking() on d.StockId equals s.Id into js
+                                       from s in js.DefaultIfEmpty()
+                                       join pv in _db.ProductVariants.AsNoTracking() on (s != null ? s.ProductVariantId : null) equals pv.Id into jpv
+                                       from pv in jpv.DefaultIfEmpty()
+                                       join pt in _db.ProductTypes.AsNoTracking() on (pv != null ? pv.ProductTypeId : null) equals pt.Id into jpt
+                                       from pt in jpt.DefaultIfEmpty()
+                                       join pc in _db.ProductCategories.AsNoTracking() on (pt != null ? pt.CategoryId : null) equals pc.Id into jpc
+                                       from pc in jpc.DefaultIfEmpty()
+                                       where saleIds.Contains(d.SaleId ?? 0)
+                                       select new CustomerSaleLineItemDto
+                                       {
+                                           SaleId = d.SaleId ?? 0,
+                                           LineId = d.Id,
+                                           StockId = d.StockId,
+                                           Quantity = d.Quantity,
+                                           TotalWeightGram = d.TotalWeightGram,
+                                           SoldPrice = d.SoldPrice,
+                                           ProductVariantId = pv != null ? pv.Id : (int?)null,
+                                           ProductVariantName = pv != null ? pv.Name : null,
+                                           ProductTypeId = pt != null ? pt.Id : (int?)null,
+                                           ProductTypeName = pt != null ? pt.Name : null,
+                                           CategoryName = pc != null ? pc.Name : null,
+                                           Brand = pv != null ? pv.Brand : null,
+                                           Ayar = pv != null ? pv.Ayar : null,
+                                           Color = pv != null ? pv.Color : null
+                                       }).ToListAsync(ct);
+            }
+
+            // Purchase line items'ı purchase'lara ekle ve TotalAmount hesapla
+            var purchaseLinesDict = purchaseLinesData
+                .GroupBy(x => x.PurchaseId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(x => new CustomerPurchaseLineDto
+                    {
+                        LineId = x.LineId,
+                        StockId = x.StockId,
+                        Quantity = x.Quantity,
+                        TotalWeightGram = x.TotalWeightGram,
+                        PurchasePrice = x.PurchasePrice,
+                        ProductVariantId = x.ProductVariantId,
+                        ProductVariantName = x.ProductVariantName,
+                        ProductTypeId = x.ProductTypeId,
+                        ProductTypeName = x.ProductTypeName,
+                        CategoryName = x.CategoryName,
+                        Brand = x.Brand,
+                        Ayar = x.Ayar,
+                        Color = x.Color
+                    }).ToList());
+
+            foreach (var purchase in purchases)
+            {
+                if (purchaseLinesDict.TryGetValue(purchase.Id, out var lines))
+                {
+                    purchase.LineItems = lines;
+                    purchase.TotalAmount = lines.Sum(l => (l.PurchasePrice ?? 0) * (l.Quantity ?? 0));
+                }
+            }
+
+            // Sale line items'ı sales'lere ekle ve TotalAmount hesapla
+            var saleLinesDict = saleLinesData
+                .GroupBy(x => x.SaleId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(x => new CustomerSaleLineDto
+                    {
+                        LineId = x.LineId,
+                        StockId = x.StockId,
+                        Quantity = x.Quantity,
+                        TotalWeightGram = x.TotalWeightGram,
+                        SoldPrice = x.SoldPrice,
+                        ProductVariantId = x.ProductVariantId,
+                        ProductVariantName = x.ProductVariantName,
+                        ProductTypeId = x.ProductTypeId,
+                        ProductTypeName = x.ProductTypeName,
+                        CategoryName = x.CategoryName,
+                        Brand = x.Brand,
+                        Ayar = x.Ayar,
+                        Color = x.Color
+                    }).ToList());
+
+            foreach (var sale in sales)
+            {
+                if (saleLinesDict.TryGetValue(sale.Id, out var lines))
+                {
+                    sale.LineItems = lines;
+                    sale.TotalAmount = lines.Sum(l => (l.SoldPrice ?? 0) * (l.Quantity ?? 0));
+                }
+            }
 
             var dto = new CustomerDetailResponseDto
             {
