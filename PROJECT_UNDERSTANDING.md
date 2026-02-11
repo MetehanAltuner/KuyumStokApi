@@ -1,8 +1,8 @@
 # Project Understanding Document
 
 ## Last Updated (UTC)
-- 2026-01-27T20:54:42Z
-- Aligned QR payload definition to PublicCode-only (no URL).
+- 2026-02-11
+- Kod tabanı tam tarandı; mimari, endpoint'ler ve konfigürasyon güncellendi.
 
 ## 1) Quick Repo Scan (top-level map + tech stack)
 
@@ -13,21 +13,22 @@
 - `KuyumStokApi.Persistence/` – EF Core `DbContext`, migrations, seed, DB init.
 - `KuyumStokApi.Infrastructure/` – service implementations, auth/JWT, password hashing, dashboard background.
 - `Dockerfile` – build + runtime container for API.
+- `dev/` – development scripts (seed-profit-loss.ps1, VALIDATION_CURL.md).
 
 **Tech stack (from `.csproj` and code)**
 - .NET 8 (`TargetFramework` `net8.0`) in all projects.  
   - `KuyumStokApi.API/KuyumStokApi.API.csproj`
 - ASP.NET Core Web API + SignalR (`AddSignalR`, `DashboardHub`).  
   - `KuyumStokApi.API/Program.cs`, `KuyumStokApi.Application/Hubs/DashboardHub.cs`
-- EF Core 9.x + Npgsql (PostgreSQL).  
+- EF Core 9.0.7 + Npgsql 9.0.4 (PostgreSQL).  
   - `KuyumStokApi.Persistence/KuyumStokApi.Persistence.csproj`
 - JWT Auth (`Microsoft.AspNetCore.Authentication.JwtBearer`).  
   - `KuyumStokApi.API/Program.cs`
-- Swagger (Swashbuckle).  
+- Swagger (Swashbuckle 6.4.0).  
   - `KuyumStokApi.API/KuyumStokApi.API.csproj`, `Program.cs`
-- QR code generation (QRCoder).  
-  - `KuyumStokApi.Infrastructure/KuyumStokApi.Infrastructure.csproj`, `KuyumStokApi.Infrastructure/Services/StocksService/StocksService.cs`
-- ML packages (Microsoft.ML, TimeSeries) – used by dashboard services.  
+- QR code generation (QRCoder 1.6.0).  
+  - `KuyumStokApi.Infrastructure/KuyumStokApi.Infrastructure.csproj`, `QrCode/QrCodeService.cs`
+- ML packages (Microsoft.ML 3.0.1, TimeSeries) – used by dashboard services.  
   - `KuyumStokApi.Infrastructure/KuyumStokApi.Infrastructure.csproj`
 
 ## 2) Entry Points & Boot Sequence (how the app starts, request/event flow)
@@ -37,34 +38,26 @@
 
 **Boot sequence (in order)**
 1. Build `WebApplication` and load config (`builder.Configuration`).  
-   - `KuyumStokApi.API/Program.cs`
 2. Register MVC controllers and SignalR.  
-   - `builder.Services.AddControllers()`, `AddSignalR()` in `Program.cs`
 3. Register CORS policies (default + `SignalRCorsPolicy`).  
-   - `Program.cs`
 4. Register Persistence + Infrastructure DI.  
-   - `AddPersistence`, `AddInfrastructure` in `Program.cs`
 5. Register `ICurrentUserContext` + JWT bearer auth + authorization.  
-   - `Program.cs`, `KuyumStokApi.Application/Interfaces/Auth/CurrentUserContext.cs`
 6. Configure Swagger with JWT security definition.  
-   - `Program.cs`
 7. Build app and configure pipeline: Swagger (dev only), HTTPS redirection, CORS, static files, auth, controllers.  
-   - `Program.cs`
 8. Map SignalR hub `/api/hubs/dashboard` and apply CORS policy.  
-   - `Program.cs`, `KuyumStokApi.Application/Hubs/DashboardHub.cs`
 9. Run migrations + seed via `app.MigrateAndSeedAsync()`.  
-   - `Program.cs`, `KuyumStokApi.Persistence/Extensions/DbInitExtensions.cs`
-10. `app.Run()`.
+   - `KuyumStokApi.Persistence/Extensions/DbInitExtensions.cs`
+10. Run `DevSeedRunner.RunAsync` (development profit/loss demo seed).  
+    - `KuyumStokApi.Infrastructure/DevSeeding/DevSeedRunner.cs`
+11. `app.Run()`.
 
 **Request flow (HTTP)**
-`Controller` → service interface (Application) → service implementation (Infrastructure) → `AppDbContext` (Persistence).  
-Example:
-- `KuyumStokApi.API/Controllers/SalesController.cs` → `ISalesService.CreateUnifiedAsync` → `KuyumStokApi.Infrastructure/Services/SalesService/SalesService.cs`
+`Controller` → service interface (Application) → service implementation (Infrastructure) → `AppDbContext` (Persistence).
 
 **Event flow (SignalR + background)**
 - SignalR hub: `/api/hubs/dashboard`.  
   - `Program.cs`, `KuyumStokApi.Application/Hubs/DashboardHub.cs`
-- Background broadcasts: `DashboardBackgroundService` sends periodic updates.  
+- Background broadcasts: `DashboardBackgroundService` sends periodic updates (30s/1m/2m).  
   - `KuyumStokApi.Infrastructure/Services/DashboardService/DashboardBackgroundService.cs`
 - Event-based broadcasts: `AppDbContext.SaveChanges` triggers `DashboardNotificationService`.  
   - `KuyumStokApi.Persistence/Contexts/AppDbContext.Partials.cs`, `KuyumStokApi.Infrastructure/Services/DashboardService/DashboardNotificationService.cs`
@@ -73,15 +66,10 @@ Example:
 
 **Layered architecture**
 - **API layer** (`KuyumStokApi.API`): HTTP endpoints, authorization attributes, uses interfaces only.  
-  - Controllers in `KuyumStokApi.API/Controllers/*.cs`
 - **Application layer** (`KuyumStokApi.Application`): DTOs + service contracts + common results + hub type.  
-  - `DTOs/*`, `Interfaces/*`, `Common/*`, `Hubs/DashboardHub.cs`
 - **Domain layer** (`KuyumStokApi.Domain`): EF entities and common interfaces.  
-  - `Domain/Entities/*.cs`, `Domain/Common/*`
 - **Infrastructure layer** (`KuyumStokApi.Infrastructure`): business logic implementations, auth, hashing, background services.  
-  - `Infrastructure/Services/*`, `Auth`, `PasswordHasher`, `Security`
 - **Persistence layer** (`KuyumStokApi.Persistence`): EF Core DbContext, migrations, seed.  
-  - `Persistence/Contexts/*`, `Migrations/*`, `Seed/SeedData.cs`
 
 **Communication**
 - API → Application interfaces → Infrastructure implementations → Persistence DbContext.
@@ -91,53 +79,49 @@ Example:
 
 **Entities (file list)**
 `KuyumStokApi.Domain/Entities/`:
-- `Banks`, `BankTransactions`, `Branches`, `Customers`, `LifecycleActions`, `Limits`, `PaymentMethods`, `ProductCategories`, `ProductTypes`, `ProductVariants`, `Stocks`, `Purchases`, `PurchaseDetails`, `Sales`, `SaleDetails`, `SalePayments`, `ProductLifecycles`, `Roles`, `Users`, `Stores`, `ThermalPrinters`, `MonthlyTargets`, `RefreshTokens`, `InvalidatedTokens`.  
-  - See `KuyumStokApi.Domain/Entities/*.cs`
+- `Banks`, `BankTransactions`, `Branches`, `Customers`, `LifecycleActions`, `Limits`, `PaymentMethods`, `ProductCategories`, `ProductTypes`, `ProductVariants`, `Stocks`, `Purchases`, `PurchaseDetails`, `Sales`, `SaleDetails`, `SalePayments`, `ProductLifecycles`, `Roles`, `Users`, `Stores`, `ThermalPrinters`, `MonthlyTargets`, `RefreshTokens`, `InvalidatedTokens`.
 
 **Inventory model (current)**
-- `Stocks` now represents **one row per (BranchId, ProductVariantId)**; uniqueness is enforced by a unique index.  
-  - `KuyumStokApi.Persistence/Contexts/AppDbContext.cs` (`AppDbContext.OnModelCreating`)
+- `Stocks` represents **one row per (BranchId, ProductVariantId)**; uniqueness enforced by `ux_stocks_branch_variant`.  
+  - `KuyumStokApi.Persistence/Contexts/AppDbContext.cs`
 - `Stocks.TotalWeightGram` stores **total weight on hand** (not unit weight).  
   - `KuyumStokApi.Domain/Entities/Stocks.cs`
-- `Stocks.PublicCode` is an optional public identifier; a unique index enforces uniqueness when present.  
-  - `KuyumStokApi.Persistence/Contexts/AppDbContext.cs`, `KuyumStokApi.Persistence/Migrations/20260127120000_AddStockPublicCode.cs`
+- `Stocks.PublicCode` is an optional public identifier; `ux_stocks_public_code` enforces uniqueness when present (filter: `public_code IS NOT NULL`).  
+  - MaxLength 12.
+- `Stocks.Barcode` unique via `stocks_barcode_key`.
 - `SaleDetails.TotalWeightGram` and `PurchaseDetails.TotalWeightGram` store **line total weight**.  
-  - `KuyumStokApi.Domain/Entities/SaleDetails.cs`  
-  - `KuyumStokApi.Domain/Entities/PurchaseDetails.cs`
 
 **Schema + relationships (from EF Core mapping)**
 - `AppDbContext` defines all `DbSet<>`s and FK relations.  
-  - `KuyumStokApi.Persistence/Contexts/AppDbContext.cs`
-- Examples (non-exhaustive):
-  - `Sales` ↔ `SaleDetails` via `SaleDetails.SaleId`.  
-  - `Sales` ↔ `SalePayments` via `SalePayments.SaleId`.  
-  - `Purchases` ↔ `PurchaseDetails` via `PurchaseDetails.PurchaseId`.  
-  - `Stocks` ↔ `ProductVariants`, `Branches`.  
-  - `ProductVariants` ↔ `ProductTypes` ↔ `ProductCategories`.  
-  - `Users` ↔ `Roles`, `Branches`.  
-  - `MonthlyTargets` ↔ `Stores`.  
-  - `RefreshTokens` ↔ `Users` (cascade delete).  
-  - `InvalidatedTokens` is standalone (JTI list).
+- Examples: Sales ↔ SaleDetails, Sales ↔ SalePayments, Purchases ↔ PurchaseDetails, Stocks ↔ ProductVariants/Branches, ProductVariants ↔ ProductTypes ↔ ProductCategories, Users ↔ Roles/Branches, MonthlyTargets ↔ Stores, RefreshTokens ↔ Users (cascade delete), InvalidatedTokens standalone.
 
 **Soft delete + query filters**
 - Global query filter for `ISoftDeletable` entities.  
   - `KuyumStokApi.Persistence/Contexts/AppDbContext.Partials.cs`
 - `SaveChanges` overrides convert `EntityState.Deleted` → soft delete and set `DeletedAt`/`DeletedBy`.  
-  - `AppDbContext.Partials.cs`
+- `Stocks` does NOT implement `ISoftDeletable`; `StocksController.Delete` performs physical delete.
 
 **Database config**
 - PostgreSQL via Npgsql; connection string in `appsettings.json`.  
-  - `KuyumStokApi.API/appsettings.json`
 - DbContext registration uses `UseNpgsql`.  
-  - `KuyumStokApi.Persistence/DependencyInjection.cs`
 
 **Migrations**
 - EF Core migrations in `KuyumStokApi.Persistence/Migrations/*`.  
-  - Use `DbInitExtensions` to apply pending migrations on startup.  
-  - `KuyumStokApi.Persistence/Extensions/DbInitExtensions.cs`
-- Inventory evolution migration:  
-  - `KuyumStokApi.Persistence/Migrations/20260119120000_StockTotalsByVariantBranch.cs`  
-  - Adds `total_weight_gram` columns, consolidates duplicate stocks by `(branch_id, product_variant_id)`, repoints foreign keys, backfills line totals, and adds `ux_stocks_branch_variant`.
+- Use `DbInitExtensions` to apply pending migrations on startup.  
+- Migration list (chronological):
+  - `20251109144018_InitialCreate`
+  - `20251109151523_AddSalePaymentsAndMultiPaymentSupport`
+  - `20251109161544_AddSalePaymentsTable`
+  - `20251110071139_UnifiedReceiptAndFavorites`
+  - `20251111070107_AddThermalPrinters`
+  - `20251128213011_AddMonthlyTargetsTable`
+  - `20251208214227_AddRefreshTokensAndInvalidatedTokensAndMustChangePassword`
+  - `20251223201339_AddRawMilyemWorkmanshipMilyemToStocks`
+  - `20251225173755_RemoveMilyemAndRawMilyemFromStocks`
+  - `20251225175103_UpdateStocksTotalMilyem`
+  - `20251228175746_ConvertStockIdToGuid`
+  - `20260119204732_StockTotalsByVariantBranch_Manual`
+  - `20260127120000_AddStockPublicCode`
 
 ## 5) APIs / Interfaces (endpoints/topics/commands: method/path, purpose, req/res, auth, handler)
 
@@ -201,7 +185,7 @@ Example:
 | `POST /api/Stocks` | `StocksController.Create` | Authorize | create/upsert stock |
 | `PUT /api/Stocks/{id}` | `StocksController.Update` | Authorize | update stock |
 | `POST /api/Stocks/backfill-public-codes` | `StocksController.BackfillPublicCodes` | Authorize | assign missing public codes |
-| `DELETE /api/Stocks/{id}` | `StocksController.Delete` | Authorize | soft delete |
+| `DELETE /api/Stocks/{id}` | `StocksController.Delete` | Authorize | delete (bağlı kayıt varsa 409) |
 | `DELETE /api/Stocks/{id}/hard` | `StocksController.HardDelete` | Authorize | hard delete |
 | `GET /api/Stocks/favorites` | `StocksController.GetFavorites` | Authorize | top sold products |
 | `GET /r/{code}` | `ResolveController.Resolve` | AllowAnonymous | resolve public code -> redirect |
@@ -255,64 +239,48 @@ Example:
 | `GET /api/Dashboard/daily-summary` | `DashboardController.GetDailySummary` | Authorize | daily summary + broadcast |
 | `GET /api/Dashboard/anomalies` | `DashboardController.GetAnomalies` | Authorize | anomalies + broadcast |
 | `GET /api/Dashboard/top-products` | `DashboardController.GetTopProducts` | Authorize | top products |
+| `GET /api/Dashboard/daily-top-selling` | `DashboardController.GetDailyTopSelling` | Authorize | günlük en çok satan ürün trendi |
 | `GET /api/Dashboard/profit-loss` | `DashboardController.GetProfitLoss` | Authorize | profit/loss report |
-| `DELETE /api/Dev/cleanup-all-data` | `DevController.CleanupAllData` | Authorize | DEV only, deletes transactional data |
+| `GET /api/Dashboard/sales-pie` | `DashboardController.GetSalesPieChart` | Authorize | satış pasta grafiği (storeId zorunlu) |
+| `GET /api/Reports/personnel-performance` | `ReportsController` | Authorize | personel performans raporu |
+| `GET /api/Reports/personnel-performance/export` | `ReportsController` | Authorize | personel performans export |
+| `DELETE /api/Dev/cleanup-all-data` | `DevController.CleanupAllData` | Authorize | DEV only, transactional data siler |
 
 **Request/response shape changes (inventory + receipts)**
-- Stock create payload includes `StockCreateDto.TotalWeightGram`.  
-  - `KuyumStokApi.Application/DTOs/Stocks/StocksDto.cs` (`StockCreateDto`)
+- Stock create payload includes `StockCreateDto.TotalWeightGram`, `PurchasePrice` (required).  
 - Unified receipt sale/purchase items include `TotalWeightGram`.  
-  - `KuyumStokApi.Application/DTOs/Receipts/UnifiedReceiptDto.cs` (`UnifiedReceiptSaleItem`, `UnifiedReceiptPurchaseItem`)
-- Sale/purchase item DTOs include `TotalWeightGram`.  
-  - `KuyumStokApi.Application/DTOs/Sales/SaleItemDto.cs`  
-  - `KuyumStokApi.Application/DTOs/Purchase/PurchaseItemDto.cs`
-- Sale list/detail `AgirlikGram` values are sourced from line totals (`SaleDetails.TotalWeightGram`).  
-  - `KuyumStokApi.Infrastructure/Services/SalesService/SalesService.cs` (`GetPagedAsync`, `GetLineByIdAsync`)
-- Stock list `StockDto.Id` is a real `Stocks.Id`, and `StockDto.TotalWeight` is `Stocks.TotalWeightGram`.  
-  - `KuyumStokApi.Infrastructure/Services/StocksService/StocksService.cs` (`GetPagedAsync`)
+- Sale list/detail `AgirlikGram` values are sourced from `SaleDetails.TotalWeightGram`.  
+- Stock list `StockDto.Id` is real `Stocks.Id`, `StockDto.TotalWeight` is `Stocks.TotalWeightGram`.  
 
 ## 6) AuthN/AuthZ (flow, tokens, roles/scopes, enforcement points)
 
 **AuthN (JWT)**
-- JWT 생성: `JwtService.GenerateToken(Users)`  
-  - `KuyumStokApi.Infrastructure/Services/JwtService/JwtService.cs`
+- JWT generation: `JwtService.GenerateToken(Users)`  
 - Claims include: `sub`, `jti`, `unique_name`, `given_name`, `surname`, `role_id`, `branch_id`, `is_active`, `must_change_password`.  
-  - `JwtService.BuildClaims`
-- JWT validation + blacklist check:  
-  - `Program.cs` `AddJwtBearer` + `OnTokenValidated` → `ITokenBlacklistService.IsTokenInvalidatedAsync`
+- JWT validation + blacklist check: `OnTokenValidated` → `ITokenBlacklistService.IsTokenInvalidatedAsync`  
+- SignalR: token query string veya Authorization header üzerinden alınır.
 
 **Refresh tokens**
 - Refresh token generation & rotation: `RefreshTokenService.GenerateRefreshTokenAsync`, `RevokeRefreshTokenAsync`.  
-  - `KuyumStokApi.Infrastructure/Services/RefreshTokenService/RefreshTokenService.cs`
-- Auth endpoints:  
-  - `AuthController.Refresh`, `AuthController.Logout`  
-  - `KuyumStokApi.API/Controllers/AuthController.cs`
+- Auth endpoints: `AuthController.Refresh`, `AuthController.Logout`  
 
 **Password policy + hashing**
-- Policy (length, character classes, blocklist, repetition/sequential checks).  
-  - `KuyumStokApi.Infrastructure/Security/PasswordPolicy.cs`
-- Hashing: SHA-256 + salt + pepper + iterations.  
-  - `KuyumStokApi.Infrastructure/PasswordHasher/PasswordHasher.cs`
+- Policy: `PasswordPolicy.cs` (length, character classes, blocklist, repetition/sequential checks).  
+- Hashing: SHA-256 + salt + pepper + iterations (`PasswordHasher`).  
 
 **AuthZ**
 - `[Authorize]` used on most controllers and SignalR hub.  
-  - Controllers in `KuyumStokApi.API/Controllers/*.cs`, `KuyumStokApi.Application/Hubs/DashboardHub.cs`
-- No role-based policy attributes found in controllers (only simple `[Authorize]`).  
-  - Example: `BanksController`, `UsersController`
+- No role-based policy attributes (only simple `[Authorize]`).  
 
 ## 7) Configuration & Environments (sources + env var table + where used)
 
 **Config sources**
 - `appsettings.json` (base)  
-  - `KuyumStokApi.API/appsettings.json`
 - `appsettings.Development.json` (dev overrides)  
-  - `KuyumStokApi.API/appsettings.Development.json`
 - `launchSettings.json` sets `ASPNETCORE_ENVIRONMENT=Development`.  
-  - `KuyumStokApi.API/Properties/launchSettings.json`
 
 **Options binding**
 - `Jwt`, `Password`, `QrCode` bound in DI with validation.  
-  - `KuyumStokApi.Infrastructure/DependencyInjection.cs`
 
 **Environment Variables**
 
@@ -326,56 +294,40 @@ Example:
 
 **Other config values (non-env)**
 - `Jwt:Issuer`, `Jwt:Audience`, `Jwt:Key`, `Jwt:ExpiryMinutes`, `Jwt:KeyId`.  
-  - `KuyumStokApi.API/appsettings.json`
 - `Password:Iterations`, `Password:Pepper`.  
-  - `KuyumStokApi.API/appsettings.json`
 - `ConnectionStrings:DefaultConnection` (PostgreSQL).  
-  - `KuyumStokApi.API/appsettings.json`
 - `QrCode:BaseUrl`, `QrCode:ResolvePath`, `QrCode:FrontendBaseUrl`, `QrCode:ErrorCorrection`, `QrCode:TargetPixelSize`, `QrCode:MinPixelsPerModule`, `QrCode:MaxPixelsPerModule`.  
-  - Resolve/yonlendirme ve UI routing icin kullanilir; **QR payload'i degildir**.  
-  - `KuyumStokApi.API/appsettings.json`, `KuyumStokApi.Infrastructure/QrCode/QrCodeOptions.cs`
 
 ## 8) External Integrations (purpose, endpoints/topics, credentials, retries, key code locations)
 
 **PostgreSQL (Npgsql)**
 - Purpose: primary data store.  
-  - `KuyumStokApi.Persistence/DependencyInjection.cs`, `appsettings.json`
 
 **SignalR**
 - Purpose: real-time dashboard updates.  
-  - Hub: `/api/hubs/dashboard` in `Program.cs`  
-  - Hub class: `KuyumStokApi.Application/Hubs/DashboardHub.cs`
+- Hub: `/api/hubs/dashboard`  
+- Hub class: `KuyumStokApi.Application/Hubs/DashboardHub.cs`  
+- Events: `LiveCountersUpdated`, `DailySummaryUpdated`, `AnomaliesUpdated`, `SummaryUpdated`, `Error`  
 
 **QR Code generation**
 - Purpose: generate QR code image as Base64 for stock items.  
-  - `KuyumStokApi.Infrastructure/Services/StocksService/StocksService.cs`, `KuyumStokApi.Infrastructure/QrCode/QrCodeService.cs`
-- QR payload = PublicCode only (raw short code string).  
-  - `/r/{code}` resolve/redirect ayri bir mekanizmadir; QR icerigine eklenmez.
-  - QR tarama sonucu frontend tarafinda link/yonlendirmeye cevrilir.
-- `StockDto.PublicCode` tarama sonucu payload degeridir; `StockDto.QrCode` bu payload'in Base64 PNG goruntusudur; URL embed edilmez.
+- `QrCodeService.GenerateQrPngBase64`; payload = PublicCode only.  
+- `/r/{code}` resolve/redirect ayrı mekanizma; QR içeriğine eklenmez.  
 
 **ML (Microsoft.ML)**
-- Purpose: anomaly detection + workload estimation (internal computation).  
-  - Packages referenced in `KuyumStokApi.Infrastructure/KuyumStokApi.Infrastructure.csproj`  
-  - Services: `KuyumStokApi.Infrastructure/Services/AnomalyDetectionService/*`, `KuyumStokApi.Infrastructure/Services/WorkloadEstimationService/*`
-
-**Unknown**
-- Any external HTTP APIs or message brokers are not found in this scan. If needed, inspect `KuyumStokApi.Infrastructure/Services/*` for additional integrations.
+- Purpose: anomaly detection + workload estimation.  
 
 ## 9) Background Jobs / Schedulers (cron/workers/listeners)
 
 - `DashboardBackgroundService` (`BackgroundService`) runs in-process.  
-  - Periodic broadcasts: live counters (30s), daily summary (1m), anomalies (2m).  
+  - LiveCounters: 30s, DailySummary: 1m, Anomalies: 2m.  
   - `KuyumStokApi.Infrastructure/Services/DashboardService/DashboardBackgroundService.cs`
 
 ## 10) Observability (logs, tracing, metrics, health checks)
 
 - Logging via `ILogger` in services and hubs.  
-  - `DashboardBackgroundService`, `DashboardService`, `DashboardHub`
-- JWT events log to console.  
-  - `Program.cs` (`OnAuthenticationFailed`, `OnChallenge`, `OnTokenValidated`)
-- No explicit metrics or health checks found.  
-  - Unknown: add `AspNetCore.HealthChecks` if required.
+- JWT events log to console (`OnAuthenticationFailed`, `OnChallenge`, `OnTokenValidated`).  
+- No explicit metrics or health checks.  
 
 ## 11) Build/Run/Test/Deploy (exact commands, docker/k8s/CI if exists)
 
@@ -395,71 +347,51 @@ Example:
 
 **Deploy**
 - Dockerfile publishes `KuyumStokApi.API` and runs `dotnet KuyumStokApi.API.dll` on port 5000.  
-  - `Dockerfile`
-- CI/CD scripts not found.  
-  - Unknown: inspect repository root for pipeline definitions if needed.
+- Base image: mcr.microsoft.com/dotnet/aspnet:8.0  
+- TZ=Europe/Istanbul  
 
 **Tests**
-- Test projesi: `KuyumStokApi.Tests`  
-  - `PublicCodeServiceTests` (public code length/alfabe/normalize/validation)  
-  - `StocksServiceTests` (public code + QR payload/backfill)
-  - `KuyumStokApi.Tests/PublicCodeServiceTests.cs`, `KuyumStokApi.Tests/StocksServiceTests.cs`
+- `KuyumStokApi.Tests`: `PublicCodeServiceTests`, `StocksServiceTests`  
 
 ## 12) How to Safely Change This Project (invariants, gotchas, what to regression test)
 
 **Key invariants / gotchas**
-- **Soft delete**: many entities use `ISoftDeletable` and are filtered globally. Use `IgnoreQueryFilters()` when needed.  
-  - `KuyumStokApi.Persistence/Contexts/AppDbContext.Partials.cs`
-- **Dashboard notifications**: `SaveChanges` triggers dashboard broadcasts; ensure new entity changes are mapped if needed.  
-  - `KuyumStokApi.Persistence/Contexts/AppDbContext.Partials.cs`, `KuyumStokApi.Infrastructure/Services/DashboardService/DashboardNotificationService.cs`
-- **Inventory uniqueness**: `Stocks` is unique per `(BranchId, ProductVariantId)` and enforced by a unique index.  
-  - `AppDbContext.OnModelCreating` in `KuyumStokApi.Persistence/Contexts/AppDbContext.cs`
-- **PublicCode**: `Stocks.PublicCode` is a 10-char Crockford Base32 code (normalized) and unique when present.  
-  - `KuyumStokApi.Infrastructure/Services/PublicCodeService/PublicCodeService.cs`, `KuyumStokApi.Persistence/Migrations/20260127120000_AddStockPublicCode.cs`
+- **Soft delete**: many entities use `ISoftDeletable`; `Stocks` does NOT – Delete is physical.  
+- **Dashboard notifications**: `SaveChanges` triggers dashboard broadcasts; `SuppressDashboardNotifications` ile geçici kapatılabilir.  
+- **Inventory uniqueness**: `Stocks` unique per `(BranchId, ProductVariantId)` via `ux_stocks_branch_variant`.  
+- **PublicCode**: 10-char Crockford Base32, unique when present.  
 - **QR payload**: QR payload = PublicCode only (raw short code string).  
-  - Resolve mekanizmasi `/r/{code}` ile ayridir.
 - **TotalWeightGram semantics**:  
-  - `Stocks.TotalWeightGram` is total on-hand weight; `SaleDetails.TotalWeightGram` and `PurchaseDetails.TotalWeightGram` are line totals.  
-  - `KuyumStokApi.Domain/Entities/Stocks.cs`, `SaleDetails.cs`, `PurchaseDetails.cs`
-- **Validation of totals**:  
-  - `StocksService.CreateAsync` requires `Quantity > 0` and `TotalWeightGram > 0` (fallbacks to `StockCreateDto.Gram` only if `TotalWeightGram` is missing).  
-  - `SalesService.ProcessSaleAsync` requires `Quantity > 0`, `TotalWeightGram > 0`, `SoldPrice > 0`, and checks stock totals before decrement.  
-  - `SalesService.ProcessPurchaseAsync` and `PurchasesService.CreateAsync` require `TotalWeightGram > 0`.  
-  - `KuyumStokApi.Infrastructure/Services/StocksService/StocksService.cs`, `SalesService.cs`, `PurchasesService.cs`
+  - `Stocks.TotalWeightGram` = total on-hand weight; `SaleDetails.TotalWeightGram` and `PurchaseDetails.TotalWeightGram` = line totals.  
+- **StockCreateDto.PurchasePrice**: Required; 0'dan büyük olmalı.  
+- **PurchasesService** merge: barkod ile; **StocksService** merge: (ProductVariantId, BranchId).  
+- **Validation**: `PositiveNumberGuard` null değerleri atlar; 0 geçersiz (exception).  
 
-**Regression tests to run after changes**
+**Regression tests to run**
 - Auth flow: register → login → refresh → logout.  
-  - `AuthController`, `JwtService`, `RefreshTokenService`
 - Stock creation/upsert + QR generation.  
-  - `StocksService.CreateAsync`
-- Stock listing + variant detail totals (ensure `TotalWeightGram` mapping).  
-  - `StocksService.GetPagedAsync`, `StocksService.GetVariantDetailInStoreAsync`
-- Unified receipt sales/purchases update both quantity and total weight.  
-  - `SalesController`, `SalesService`
-- Standalone purchases flow updates `Stocks.TotalWeightGram`.  
-  - `PurchasesController`, `PurchasesService`
+- Stock listing + variant detail totals.  
+- Unified receipt sales/purchases.  
+- Standalone purchases flow.  
 - Soft delete filtering (list endpoints vs. hard delete).  
-  - `AppDbContext.Partials.cs`, CRUD services
 - SignalR dashboard: initial connection + periodic broadcasts.  
-  - `DashboardHub`, `DashboardBackgroundService`
 
 ## 13) Backlog / TODO extraction (TODO/FIXME + docs notes)
 
-- No `TODO`/`FIXME` markers found in repository source.  
-  - `rg` scan across repo found none.
+- No `TODO`/`FIXME` markers extracted in this scan.  
 
 ## 14) Final Summary (10 bullets)
 
 - API is a .NET 8 layered architecture with separate Application/Domain/Infrastructure/Persistence projects.
-- Startup is in `KuyumStokApi.API/Program.cs` and applies migrations + seed on boot.
-- EF Core (PostgreSQL) is the data layer with global soft-delete filters.
+- Startup is in `KuyumStokApi.API/Program.cs` and applies migrations + seed on boot, then DevSeedRunner.
+- EF Core 9.x (PostgreSQL) is the data layer with global soft-delete filters; Stocks uses physical delete.
 - JWT authentication uses HS256 with refresh token rotation and blacklist support.
-- Most endpoints are `[Authorize]`, with explicit anonymous auth endpoints in `AuthController`.
+- Most endpoints are `[Authorize]`; anonymous: Auth (register/login/refresh/validate), Resolve.
 - SignalR hub `/api/hubs/dashboard` provides live updates and initial data payloads.
-- Dashboard updates are sent both periodically (background service) and on data changes (SaveChanges hooks).
-- Inventory model is one `Stocks` row per `(BranchId, ProductVariantId)` with total gram tracking.
-- Dockerfile builds and runs the API on port 5000 in container.
-- Test projesi mevcut (`KuyumStokApi.Tests`); CI/CD scriptleri bulunamadi.  
+- Dashboard updates: periodic (30s/1m/2m) + event-based (SaveChanges) + sale commit (NotifySaleCommittedAsync).
+- Inventory model: one `Stocks` row per `(BranchId, ProductVariantId)` with total gram tracking.
+- Dockerfile builds and runs the API on port 5000; TZ=Europe/Istanbul.
+- Test project: `KuyumStokApi.Tests` (PublicCodeServiceTests, StocksServiceTests).  
 
 ---
 
@@ -469,19 +401,19 @@ Example:
 |---|---|---|
 | `KuyumStokApi.API/Program.cs` | DI, middleware, auth, Swagger, SignalR, migration boot | app entry + pipeline |
 | `KuyumStokApi.API/Controllers/*.cs` | HTTP endpoints | API surface |
-| `KuyumStokApi.Application/Interfaces/*` | service contracts | boundary between API and Infra |
-| `KuyumStokApi.Application/Common/ApiResult.cs` | standard API response wrapper | shared response format |
+| `KuyumStokApi.Application/Interfaces/*` | service contracts | boundary |
+| `KuyumStokApi.Application/Common/ApiResult.cs` | standard API response wrapper | shared format |
 | `KuyumStokApi.Application/DTOs/Receipts/UnifiedReceiptDto.cs` | unified receipt DTOs | sale/purchase payloads |
-| `KuyumStokApi.Application/DTOs/Stocks/StocksDto.cs` | stock DTOs + `TotalWeightGram` | inventory payloads |
+| `KuyumStokApi.Application/DTOs/Stocks/StocksDto.cs` | stock DTOs + TotalWeightGram | inventory payloads |
 | `KuyumStokApi.Domain/Entities/*.cs` | EF entities | domain model |
-| `KuyumStokApi.Persistence/Contexts/AppDbContext.cs` | DbSet + mapping + unique index | DB schema config |
+| `KuyumStokApi.Persistence/Contexts/AppDbContext.cs` | DbSet + mapping + indexes | DB schema |
 | `KuyumStokApi.Persistence/Contexts/AppDbContext.Partials.cs` | soft delete + dashboard notifications | global behavior |
-| `KuyumStokApi.Persistence/Migrations/20260119120000_StockTotalsByVariantBranch.cs` | inventory migration + consolidation | schema + data alignment |
-| `KuyumStokApi.Persistence/Extensions/DbInitExtensions.cs` | migration + seed on startup | DB initialization |
-| `KuyumStokApi.Infrastructure/DependencyInjection.cs` | service wiring | runtime dependencies |
-| `KuyumStokApi.Infrastructure/Services/StocksService/StocksService.cs` | stock listing/upsert | inventory correctness |
+| `KuyumStokApi.Persistence/Migrations/20260119204732_StockTotalsByVariantBranch_Manual.cs` | inventory migration + consolidation | schema + data |
+| `KuyumStokApi.Persistence/Extensions/DbInitExtensions.cs` | migration + seed on startup | DB init |
+| `KuyumStokApi.Infrastructure/DependencyInjection.cs` | service wiring | runtime deps |
+| `KuyumStokApi.Infrastructure/Services/StocksService/StocksService.cs` | stock listing/upsert | inventory |
 | `KuyumStokApi.Infrastructure/Services/SalesService/SalesService.cs` | unified receipt flow | stock decrement/increment |
-| `KuyumStokApi.Infrastructure/Services/PurchasesService/PurchasesService.cs` | purchase flow | stock increment |
+| `KuyumStokApi.Infrastructure/Services/PurchasesService/PurchasesService.cs` | purchase flow | stock increment (barcode merge) |
 | `KuyumStokApi.Infrastructure/Services/DashboardService/*` | dashboard logic + background worker | real-time analytics |
 | `Dockerfile` | container build/runtime | deployment |
 | `KuyumStokApi.API/appsettings.json` | core config | runtime settings |

@@ -1,4 +1,4 @@
-﻿using KuyumStokApi.Application.DTOs.Receipts;
+using KuyumStokApi.Application.DTOs.Receipts;
 using KuyumStokApi.Application.DTOs.Sales;
 using KuyumStokApi.Application.Interfaces.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -30,12 +30,12 @@ namespace KuyumStokApi.API.Controllers
             return StatusCode(r.StatusCode, r);
         }
 
-        /// <summary>Satış detayını (satırları ile) getirir.</summary>
+        /// <summary>Satış detayını (header + kalem listesi) getirir. {id} = Sale.Id (saleId).</summary>
         [HttpGet("{id:int}")]
         [Authorize]
         public async Task<IActionResult> GetById(int id, CancellationToken ct)
         {
-            var r = await _svc.GetLineByIdAsync(id, ct);
+            var r = await _svc.GetSaleDetailAsync(id, ct);
             return StatusCode(r.StatusCode, r);
         }
     }

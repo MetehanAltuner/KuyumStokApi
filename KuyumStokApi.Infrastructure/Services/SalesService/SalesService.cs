@@ -169,53 +169,48 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
             }
         }
         public async Task<ApiResult<PagedResult<SaleListDto>>> GetPagedAsync(
-    SaleFilter filter, CancellationToken ct = default)
+            SaleFilter filter, CancellationToken ct = default)
         {
             var page = Math.Max(1, filter.Page);
             var size = Math.Clamp(filter.PageSize, 1, 200);
 
-            var q =
-                from d in _db.SaleDetails.AsNoTracking()
-                join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
-                join st in _db.Stocks.AsNoTracking() on d.StockId equals st.Id
-                join pv in _db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id into jpv
-                from pv in jpv.DefaultIfEmpty()
+            var baseQuery =
+                from s in _db.Sales.AsNoTracking()
+                join d in _db.SaleDetails.AsNoTracking() on s.Id equals d.SaleId
                 join b in _db.Branches.AsNoTracking() on s.BranchId equals b.Id into jb
                 from b in jb.DefaultIfEmpty()
                 join u in _db.Users.AsNoTracking() on s.UserId equals u.Id into ju
                 from u in ju.DefaultIfEmpty()
-                select new { d, s, st, pv, b, u };
+                select new { s, d, b, u };
 
-            if (filter.BranchId.HasValue) q = q.Where(x => x.s.BranchId == filter.BranchId);
-            if (filter.UserId.HasValue) q = q.Where(x => x.s.UserId == filter.UserId);
-            if (filter.CustomerId.HasValue) q = q.Where(x => x.s.CustomerId == filter.CustomerId);
-            if (filter.PaymentMethodId.HasValue) q = q.Where(x => x.s.PaymentMethodId == filter.PaymentMethodId);
-            if (filter.FromUtc.HasValue) q = q.Where(x => x.s.CreatedAt >= filter.FromUtc);
-            if (filter.ToUtc.HasValue) q = q.Where(x => x.s.CreatedAt <= filter.ToUtc);
+            if (filter.BranchId.HasValue) baseQuery = baseQuery.Where(x => x.s.BranchId == filter.BranchId);
+            if (filter.UserId.HasValue) baseQuery = baseQuery.Where(x => x.s.UserId == filter.UserId);
+            if (filter.CustomerId.HasValue) baseQuery = baseQuery.Where(x => x.s.CustomerId == filter.CustomerId);
+            if (filter.PaymentMethodId.HasValue) baseQuery = baseQuery.Where(x => x.s.PaymentMethodId == filter.PaymentMethodId);
+            if (filter.FromUtc.HasValue) baseQuery = baseQuery.Where(x => x.s.CreatedAt >= filter.FromUtc);
+            if (filter.ToUtc.HasValue) baseQuery = baseQuery.Where(x => x.s.CreatedAt <= filter.ToUtc);
 
-            var total = await q.LongCountAsync(ct);
+            var groupedQuery =
+                from x in baseQuery
+                group x by new { x.s.Id, x.s.CreatedAt, x.s.BranchId, x.s.UserId } into g
+                select new SaleListDto
+                {
+                    SaleId = g.Key.Id,
+                    CreatedAt = g.Key.CreatedAt,
+                    BranchId = g.Key.BranchId,
+                    BranchName = g.First().b != null ? g.First().b.Name : null,
+                    UserId = g.Key.UserId,
+                    UserName = g.First().u != null ? g.First().u.Username : null,
+                    TotalWeightGram = g.Sum(x => x.d.TotalWeightGram),
+                    TotalAmount = g.Sum(x => (x.d.SoldPrice ?? 0m) * (x.d.Quantity ?? 0))
+                };
 
-            var items = await q
-                .OrderByDescending(x => x.s.CreatedAt)
+            var orderedQuery = groupedQuery.OrderByDescending(x => x.CreatedAt);
+            var total = await orderedQuery.LongCountAsync(ct);
+
+            var items = await orderedQuery
                 .Skip((page - 1) * size)
                 .Take(size)
-                .Select(x => new SaleListDto
-                {
-                    SaleId = x.s.Id,
-                    LineId = x.d.Id,
-                    CreatedAt = x.s.CreatedAt,
-                    BranchId = x.s.BranchId,
-                    BranchName = x.b != null ? x.b.Name : null,
-                    UserId = x.s.UserId,
-                    UserName = x.u != null ? x.u.Username : null,
-                    StockId = x.st.Id, // Guid
-                    ProductName = x.pv != null ? x.pv.Name : null,
-                    Ayar = x.pv != null ? x.pv.Ayar : null,
-                    Renk = x.pv != null ? x.pv.Color : null,
-                    AgirlikGram = x.d.TotalWeightGram,
-                    Quantity = x.d.Quantity ?? 0,
-                    SoldPrice = x.d.SoldPrice
-                })
                 .ToListAsync(ct);
 
             var result = new PagedResult<SaleListDto>
@@ -226,42 +221,67 @@ namespace KuyumStokApi.Infrastructure.Services.SalesService
                 TotalCount = total
             };
 
-            return ApiResult<PagedResult<SaleListDto>>.Ok(result, "Satış kalem listesi", 200);
+            return ApiResult<PagedResult<SaleListDto>>.Ok(result, "Satış listesi", 200);
         }
 
-        public async Task<ApiResult<SaleLineDetailDto>> GetLineByIdAsync(int lineId, CancellationToken ct = default)
+        public async Task<ApiResult<SaleDetailResponseDto>> GetSaleDetailAsync(int saleId, CancellationToken ct = default)
         {
-            var q =
-                from d in _db.SaleDetails.AsNoTracking()
-                join s in _db.Sales.AsNoTracking() on d.SaleId equals s.Id
-                join st in _db.Stocks.AsNoTracking() on d.StockId equals st.Id
-                join pv in _db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id into jpv
-                from pv in jpv.DefaultIfEmpty()
+            var saleQuery =
+                from s in _db.Sales.AsNoTracking()
+                join b in _db.Branches.AsNoTracking() on s.BranchId equals b.Id into jb
+                from b in jb.DefaultIfEmpty()
+                join u in _db.Users.AsNoTracking() on s.UserId equals u.Id into ju
+                from u in ju.DefaultIfEmpty()
+                join c in _db.Customers.AsNoTracking() on s.CustomerId equals c.Id into jc
+                from c in jc.DefaultIfEmpty()
                 join pm in _db.PaymentMethods.AsNoTracking() on s.PaymentMethodId equals pm.Id into jpm
                 from pm in jpm.DefaultIfEmpty()
-                where d.Id == lineId
-                select new SaleLineDetailDto
+                where s.Id == saleId
+                select new SaleDetailResponseDto
                 {
-                    SaleId = s.Id,
-                    LineId = d.Id,
+                    Id = s.Id,
                     CreatedAt = s.CreatedAt,
-                    PaymentMethod = pm != null ? pm.Name : null,
-
-                    StockId = st.Id,
-                    ProductName = pv != null ? pv.Name : null,
-                    Ayar = pv != null ? pv.Ayar : null,
-                    Renk = pv != null ? pv.Color : null,
-                    AgirlikGram = d.TotalWeightGram,
-
-                    ListeFiyati = null,                 // Şemada katalog/list price yok
-                    SatisFiyati = d.SoldPrice
+                    BranchId = s.BranchId,
+                    BranchName = b != null ? b.Name : null,
+                    UserId = s.UserId,
+                    UserName = u != null ? u.Username : null,
+                    CustomerId = s.CustomerId,
+                    CustomerName = c != null ? c.Name : null,
+                    PaymentMethodId = s.PaymentMethodId,
+                    PaymentMethodName = pm != null ? pm.Name : null,
+                    Items = Array.Empty<SaleDetailItemDto>() // will be filled below
                 };
 
-            var dto = await q.FirstOrDefaultAsync(ct);
-            if (dto is null)
-                return ApiResult<SaleLineDetailDto>.Fail("Satış kalemi bulunamadı", statusCode: 404);
+            var header = await saleQuery.FirstOrDefaultAsync(ct);
+            if (header is null)
+                return ApiResult<SaleDetailResponseDto>.Fail("Satış bulunamadı", statusCode: 404);
 
-            return ApiResult<SaleLineDetailDto>.Ok(dto, "Satış kalem detayı", 200);
+            var itemsQuery =
+                from d in _db.SaleDetails.AsNoTracking()
+                where d.SaleId == saleId
+                join st in _db.Stocks.AsNoTracking() on d.StockId equals st.Id into jst
+                from st in jst.DefaultIfEmpty()
+                join pv in _db.ProductVariants.AsNoTracking() on (st != null ? st.ProductVariantId : (int?)null) equals pv.Id into jpv
+                from pv in jpv.DefaultIfEmpty()
+                select new SaleDetailItemDto
+                {
+                    LineId = d.Id,
+                    ProductName = pv != null ? pv.Name : null,
+                    ProductAyar = pv != null ? pv.Ayar : null,
+                    ProductColor = pv != null ? pv.Color : null,
+                    Brand = pv != null ? pv.Brand : null,
+                    StockId = st != null ? (Guid?)st.Id : null,
+                    PublicCode = st != null ? st.PublicCode : null,
+                    Quantity = d.Quantity ?? 0,
+                    SoldPrice = d.SoldPrice,
+                    LineWeightGram = d.TotalWeightGram,
+                    LineAmount = (d.SoldPrice ?? 0m) * (d.Quantity ?? 0)
+                };
+
+            var items = await itemsQuery.ToListAsync(ct);
+
+            var dto = header with { Items = items };
+            return ApiResult<SaleDetailResponseDto>.Ok(dto, "Satış detayı", 200);
         }
 
         #region Helpers

@@ -83,24 +83,54 @@ namespace KuyumStokApi.Application.DTOs.Sales
         public DateTime? ToUtc { get; init; }
     }
 
+    /// <summary>Satış listesi DTO (satış bazlı, satır bazlı değil). Her satır bir Sale temsil eder.</summary>
     public sealed class SaleListDto
     {
-        public int SaleId { get; init; }          // İşlem butonları için
-        public int LineId { get; init; }          // sale_details.id
-        public DateTime? CreatedAt { get; init; } // s.CreatedAt
+        public int SaleId { get; init; }
+        public DateTime? CreatedAt { get; init; }
         public int? BranchId { get; init; }
         public string? BranchName { get; init; }
         public int? UserId { get; init; }
         public string? UserName { get; init; }
-        public Guid StockId { get; init; }
-        public string? ProductName { get; init; } // pv.Name
-        public string? Ayar { get; init; }        // pv.Ayar
-        public string? Renk { get; init; }        // pv.Color
-        public decimal? AgirlikGram { get; init; } // st.Gram
-        public int Quantity { get; init; }
-        public decimal? SoldPrice { get; init; }
+        /// <summary>Satış kalemlerinin toplam ağırlığı (gram).</summary>
+        public decimal TotalWeightGram { get; init; }
+        /// <summary>Satış kalemlerinin toplam tutarı (SatisFiyati * Quantity).</summary>
+        public decimal TotalAmount { get; init; }
     }
 
+    /// <summary>Satış detayındaki tek bir kalem (satır).</summary>
+    public sealed class SaleDetailItemDto
+    {
+        public int LineId { get; init; }
+        public string? ProductName { get; init; }
+        public string? ProductAyar { get; init; }
+        public string? ProductColor { get; init; }
+        public string? Brand { get; init; }
+        public Guid? StockId { get; init; }
+        public string? PublicCode { get; init; }
+        public int Quantity { get; init; }
+        public decimal? SoldPrice { get; init; }
+        public decimal LineWeightGram { get; init; }
+        public decimal LineAmount { get; init; }
+    }
+
+    /// <summary>Satış detayı yanıtı: header + kalem listesi.</summary>
+    public sealed record SaleDetailResponseDto
+    {
+        public int Id { get; init; }
+        public DateTime? CreatedAt { get; init; }
+        public int? BranchId { get; init; }
+        public string? BranchName { get; init; }
+        public int? UserId { get; init; }
+        public string? UserName { get; init; }
+        public int? CustomerId { get; init; }
+        public string? CustomerName { get; init; }
+        public int? PaymentMethodId { get; init; }
+        public string? PaymentMethodName { get; init; }
+        public IReadOnlyList<SaleDetailItemDto> Items { get; init; } = Array.Empty<SaleDetailItemDto>();
+    }
+
+    [Obsolete("Use GetSaleDetailAsync(saleId) and SaleDetailResponseDto.Items instead.")]
     public sealed class SaleLineDetailDto
     {
         public int SaleId { get; init; }
