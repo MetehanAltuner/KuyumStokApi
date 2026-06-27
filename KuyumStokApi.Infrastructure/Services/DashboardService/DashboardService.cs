@@ -674,20 +674,20 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
             }
         }
 
-        public async Task<ApiResult<List<SalesPieChartItemDto>>> GetSalesPieChartAsync(int storeId, int? branchId, int days, CancellationToken ct = default)
+        public async Task<ApiResult<List<SalesPieChartCategoryItemDto>>> GetSalesPieChartAsync(int storeId, int? branchId, int days, CancellationToken ct = default)
         {
             if (storeId <= 0)
-                return ApiResult<List<SalesPieChartItemDto>>.Fail("StoreId 0'dan büyük olmalıdır.", statusCode: 400);
+                return ApiResult<List<SalesPieChartCategoryItemDto>>.Fail("StoreId 0'dan büyük olmalıdır.", statusCode: 400);
 
             if (days < 1 || days > 90)
-                return ApiResult<List<SalesPieChartItemDto>>.Fail("Gün sayısı 1-90 aralığında olmalıdır.", statusCode: 400);
+                return ApiResult<List<SalesPieChartCategoryItemDto>>.Fail("Gün sayısı 1-90 aralığında olmalıdır.", statusCode: 400);
 
             try
             {
                 await using var db = await _dbFactory.CreateDbContextAsync(ct);
                 var scope = await ResolveScopeAsync(db, ct);
                 if (!scope.AccessibleBranchIds.Any())
-                    return ApiResult<List<SalesPieChartItemDto>>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
+                    return ApiResult<List<SalesPieChartCategoryItemDto>>.Fail("Görüntüleyebileceğiniz şube bulunamadı.", statusCode: 403);
 
                 List<int> targetBranchIds;
                 if (branchId.HasValue)
@@ -697,10 +697,10 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                         .AnyAsync(ct);
 
                     if (!belongsToStore)
-                        return ApiResult<List<SalesPieChartItemDto>>.Fail("Şube bu mağazaya ait değil.", statusCode: 400);
+                        return ApiResult<List<SalesPieChartCategoryItemDto>>.Fail("Şube bu mağazaya ait değil.", statusCode: 400);
 
                     if (!scope.AccessibleBranchIds.Contains(branchId.Value))
-                        return ApiResult<List<SalesPieChartItemDto>>.Fail("Bu şube için yetkiniz yok.", statusCode: 403);
+                        return ApiResult<List<SalesPieChartCategoryItemDto>>.Fail("Bu şube için yetkiniz yok.", statusCode: 403);
 
                     targetBranchIds = new List<int> { branchId.Value };
                 }
@@ -712,14 +712,14 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                         .ToListAsync(ct);
 
                     if (!storeBranchIds.Any())
-                        return ApiResult<List<SalesPieChartItemDto>>.Fail("Mağaza için şube bulunamadı.", statusCode: 400);
+                        return ApiResult<List<SalesPieChartCategoryItemDto>>.Fail("Mağaza için şube bulunamadı.", statusCode: 400);
 
                     targetBranchIds = storeBranchIds
                         .Where(id => scope.AccessibleBranchIds.Contains(id))
                         .ToList();
 
                     if (!targetBranchIds.Any())
-                        return ApiResult<List<SalesPieChartItemDto>>.Fail("Bu mağaza için görüntüleme yetkiniz yok.", statusCode: 403);
+                        return ApiResult<List<SalesPieChartCategoryItemDto>>.Fail("Bu mağaza için görüntüleme yetkiniz yok.", statusCode: 403);
                 }
 
                 var now = DateTime.UtcNow;
@@ -742,34 +742,35 @@ namespace KuyumStokApi.Infrastructure.Services.DashboardService
                      where s.BranchId != null && targetBranchIds.Contains(s.BranchId.Value)
                      let created = s.CreatedAt ?? s.UpdatedAt ?? DateTime.MinValue
                      where created >= start && created <= now
-                     join st in db.Stocks.AsNoTracking() on d.StockId equals st.Id into js
-                     from st in js.DefaultIfEmpty()
-                     join pv in db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id into jpv
-                     from pv in jpv.DefaultIfEmpty()
-                     where pv == null || (!pv.IsDeleted && pv.IsActive)
-                     group d by new
+                     join st in db.Stocks.AsNoTracking() on d.StockId equals st.Id
+                     join pv in db.ProductVariants.AsNoTracking() on st.ProductVariantId equals pv.Id
+                     join pt in db.ProductTypes.AsNoTracking() on pv.ProductTypeId equals pt.Id
+                     where !pv.IsDeleted && pv.IsActive && !pt.IsDeleted && pt.IsActive
+                     group d by new { pt.Id, pt.Name } into g
+                     select new SalesPieChartCategoryItemDto
                      {
-                         ProductVariantId = st != null ? st.ProductVariantId : pv != null ? (int?)pv.Id : null,
-                         ProductVariantName = pv != null ? pv.Name : st != null ? st.Barcode : "Tanımsız"
-                     }
-                    into g
-                     where g.Key.ProductVariantId != null
-                     select new SalesPieChartItemDto
-                     {
-                         ProductVariantId = g.Key.ProductVariantId!.Value,
-                         ProductVariantName = g.Key.ProductVariantName ?? "Tanımsız",
-                         TotalQuantity = g.Sum(x => x.Quantity ?? 0),
-                         TotalAmount = Math.Round(g.Sum(x => (x.Quantity ?? 0) * (x.SoldPrice ?? 0m)), 2)
+                         ProductTypeId = g.Key.Id,
+                         ProductTypeName = g.Key.Name ?? string.Empty,
+                         TotalAmount = Math.Round(g.Sum(x => (x.Quantity ?? 0) * (x.SoldPrice ?? 0m)), 2),
+                         TotalWeightGram = Math.Round(g.Sum(x => x.TotalWeightGram), 2)
                      })
                     .OrderByDescending(x => x.TotalAmount)
                     .ToListAsync(ct);
 
-                return ApiResult<List<SalesPieChartItemDto>>.Ok(items, "Satış pasta grafiği hazırlandı", 200);
+                var grandTotal = items.Sum(x => x.TotalAmount);
+                foreach (var item in items)
+                {
+                    item.Percentage = grandTotal > 0
+                        ? Math.Round((item.TotalAmount / grandTotal) * 100, 2)
+                        : 0m;
+                }
+
+                return ApiResult<List<SalesPieChartCategoryItemDto>>.Ok(items, "Satış pasta grafiği hazırlandı", 200);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Satış pasta grafiği hesaplanırken hata oluştu");
-                return ApiResult<List<SalesPieChartItemDto>>.Fail("Satış pasta grafiği hesaplanırken bir hata oluştu.", statusCode: 500);
+                return ApiResult<List<SalesPieChartCategoryItemDto>>.Fail("Satış pasta grafiği hesaplanırken bir hata oluştu.", statusCode: 500);
             }
         }
 

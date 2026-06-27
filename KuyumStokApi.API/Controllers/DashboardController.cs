@@ -105,12 +105,14 @@ namespace KuyumStokApi.API.Controllers
         }
 
         /// <summary>
-        /// Ürün varyantı bazlı satış pasta grafiği (son N gün)
+        /// Ürün kategorisi bazlı satış pasta grafiği (son N gün). Sadece seçilen dönemde satışı olan kategoriler döner.
         /// </summary>
-        /// <param name="storeId">Mağaza Id (zorunlu)</param>
+        /// <param name="storeId">Mağaza Id (zorunlu, 0'dan büyük)</param>
         /// <param name="branchId">Şube Id (opsiyonel; verilirse sadece o şube, verilmezse mağazanın tüm şubeleri)</param>
-        /// <param name="days">Kaç gün (default: 7, min: 1, max: 90)</param>
+        /// <param name="days">Kaç gün (default: 7, min: 1, max: 90) - 400 hatası döner</param>
         /// <param name="ct">İptal token'ı</param>
+        /// <response code="400">storeId veya days geçersiz; şube mağazaya ait değil</response>
+        /// <response code="403">Yetkisiz şube veya mağaza</response>
         [HttpGet("sales-pie")]
         public async Task<IActionResult> GetSalesPieChart(
             [FromQuery] int storeId,

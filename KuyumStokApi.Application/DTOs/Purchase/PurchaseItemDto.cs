@@ -85,19 +85,23 @@ namespace KuyumStokApi.Application.DTOs.Purchase
 
     public sealed class PurchaseDetailLineDto
     {
-        public int Id { get; init; }
-        public Guid StockId { get; init; }
+        public int LineId { get; init; }
+        public string? ProductTypeName { get; init; }
+        public string? ProductVariantName { get; init; }
+        public string? ProductAyar { get; init; }
+        public string? ProductColor { get; init; }
+        public string? Brand { get; init; }
+        public Guid? StockId { get; init; }
         public string? Barcode { get; init; }
+        public string? QrCode { get; init; }
+        public string? PublicCode { get; init; }
         public int Quantity { get; init; }
         public decimal? PurchasePrice { get; init; }
-        public decimal TotalWeightGram { get; init; }
-
-        // vitrin için okunur isim (varsa)
-        public int? ProductVariantId { get; init; }
-        public string? VariantDisplay { get; init; }
+        public decimal LineWeightGram { get; init; }
+        public decimal LineAmount { get; init; }
     }
 
-    public sealed class PurchaseDetailDto
+    public sealed record PurchaseDetailDto
     {
         public int Id { get; init; }
         public DateTime? CreatedAt { get; init; }
@@ -108,11 +112,9 @@ namespace KuyumStokApi.Application.DTOs.Purchase
         public int? CustomerId { get; init; }
         public string? CustomerName { get; init; }
         public int? PaymentMethodId { get; init; }
-        public string? PaymentMethod { get; init; }
-
+        public string? PaymentMethodName { get; init; }
         public decimal TotalAmount { get; init; }
-        public int ItemCount { get; init; }
-
-        public IReadOnlyList<PurchaseDetailLineDto> Lines { get; init; } = Array.Empty<PurchaseDetailLineDto>();
+        public decimal TotalWeightGram { get; init; }
+        public IReadOnlyList<PurchaseDetailLineDto> Items { get; init; } = Array.Empty<PurchaseDetailLineDto>();
     }
 }

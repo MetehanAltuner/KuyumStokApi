@@ -1,0 +1,22 @@
+services:
+  kuyum-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kuyumstokapi:latest
+    container_name: kuyum-api
+    restart: unless-stopped
+    ports:
+      - "5001:5000"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - TZ=Europe/Istanbul
+      # Migration uygulama açılışında otomatik çalışır (MigrateAndSeedAsync).
+      # Atlamak istersen: SKIP_DB_MIGRATE=true
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=kuyum_stok;Username=kuyum_user;Password=Kuyum2025!;Include Error Detail=true;TimeZone=UTC
+    networks:
+      - liventa-network
+
+networks:
+  liventa-network:
+    external: true

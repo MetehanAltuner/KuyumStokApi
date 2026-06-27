@@ -81,14 +81,15 @@ namespace KuyumStokApi.Application.DTOs.Dashboard
     }
 
     /// <summary>
-    /// Satış pasta grafiği item DTO (ürün varyantı bazlı)
+    /// Satış pasta grafiği item DTO (ürün tipi bazlı)
     /// </summary>
-    public sealed class SalesPieChartItemDto
+    public sealed class SalesPieChartCategoryItemDto
     {
-        public int ProductVariantId { get; set; }
-        public string ProductVariantName { get; set; } = string.Empty;
-        public decimal TotalQuantity { get; set; }
+        public int ProductTypeId { get; set; }
+        public string ProductTypeName { get; set; } = string.Empty;
         public decimal TotalAmount { get; set; }
+        public decimal TotalWeightGram { get; set; }
+        public decimal Percentage { get; set; }
     }
 
     /// <summary>

@@ -195,64 +195,70 @@ namespace KuyumStokApi.Infrastructure.Services.PurchasesService
 
         public async Task<ApiResult<PurchaseDetailDto>> GetByIdAsync(int id, CancellationToken ct = default)
         {
-            var head =
-                await (from p in _db.Purchases.AsNoTracking()
-                       join b in _db.Branches.AsNoTracking() on p.BranchId equals b.Id into jb
-                       from b in jb.DefaultIfEmpty()
-                       join u in _db.Users.AsNoTracking() on p.UserId equals u.Id into ju
-                       from u in ju.DefaultIfEmpty()
-                       join c in _db.Customers.AsNoTracking() on p.CustomerId equals c.Id into jc
-                       from c in jc.DefaultIfEmpty()
-                       join pm in _db.PaymentMethods.AsNoTracking() on p.PaymentMethodId equals pm.Id into jpm
-                       from pm in jpm.DefaultIfEmpty()
-                       where p.Id == id
-                       select new
-                       {
-                           p,
-                           BranchName = b!.Name,
-                           UserName = u!.Username,
-                           CustomerName = c!.Name,
-                           PaymentMethod = pm!.Name
-                       }).FirstOrDefaultAsync(ct);
+            var headerQuery =
+                from p in _db.Purchases.AsNoTracking()
+                join b in _db.Branches.AsNoTracking() on p.BranchId equals b.Id into jb
+                from b in jb.DefaultIfEmpty()
+                join u in _db.Users.AsNoTracking() on p.UserId equals u.Id into ju
+                from u in ju.DefaultIfEmpty()
+                join c in _db.Customers.AsNoTracking() on p.CustomerId equals c.Id into jc
+                from c in jc.DefaultIfEmpty()
+                join pm in _db.PaymentMethods.AsNoTracking() on p.PaymentMethodId equals pm.Id into jpm
+                from pm in jpm.DefaultIfEmpty()
+                where p.Id == id
+                select new PurchaseDetailDto
+                {
+                    Id = p.Id,
+                    CreatedAt = p.CreatedAt,
+                    BranchId = p.BranchId,
+                    BranchName = b != null ? b.Name : null,
+                    UserId = p.UserId,
+                    UserName = u != null ? u.Username : null,
+                    CustomerId = p.CustomerId,
+                    CustomerName = c != null ? c.Name : null,
+                    PaymentMethodId = p.PaymentMethodId,
+                    PaymentMethodName = pm != null ? pm.Name : null,
+                    Items = Array.Empty<PurchaseDetailLineDto>()
+                };
 
-            if (head is null)
+            var header = await headerQuery.FirstOrDefaultAsync(ct);
+            if (header is null)
                 return ApiResult<PurchaseDetailDto>.Fail("Alış bulunamadı", statusCode: 404);
 
-            var lines =
-                await (from d in _db.PurchaseDetails.AsNoTracking()
-                       join s in _db.Stocks.AsNoTracking() on d.StockId equals s.Id
-                       join pv in _db.ProductVariants.AsNoTracking() on s.ProductVariantId equals pv.Id into jpv
-                       from pv in jpv.DefaultIfEmpty()
-                       where d.PurchaseId == id
-                       select new PurchaseDetailLineDto
-                       {
-                           Id = d.Id,
-                           StockId = s.Id,
-                           Barcode = s.Barcode,
-                           Quantity = d.Quantity ?? 0,
-                           PurchasePrice = d.PurchasePrice,
-                           TotalWeightGram = d.TotalWeightGram,
-                           ProductVariantId = s.ProductVariantId,
-                           VariantDisplay =
-                               pv == null ? null :
-                               $"{pv.Brand ?? ""} {pv.Ayar ?? ""} {s.Gram ?? 0:0.##}g"
-                       }).ToListAsync(ct);
+            var itemsQuery =
+                from d in _db.PurchaseDetails.AsNoTracking()
+                where d.PurchaseId == id
+                join st in _db.Stocks.AsNoTracking() on d.StockId equals st.Id into jst
+                from st in jst.DefaultIfEmpty()
+                join pv in _db.ProductVariants.AsNoTracking() on (st != null ? st.ProductVariantId : (int?)null) equals pv.Id into jpv
+                from pv in jpv.DefaultIfEmpty()
+                join pt in _db.ProductTypes.AsNoTracking() on (pv != null ? pv.ProductTypeId : (int?)null) equals pt.Id into jpt
+                from pt in jpt.DefaultIfEmpty()
+                select new PurchaseDetailLineDto
+                {
+                    LineId = d.Id,
+                    ProductTypeName = pt != null ? pt.Name : null,
+                    ProductVariantName = pv != null ? pv.Name : null,
+                    ProductAyar = pv != null ? pv.Ayar : null,
+                    ProductColor = pv != null ? pv.Color : null,
+                    Brand = pv != null ? pv.Brand : null,
+                    StockId = st != null ? (Guid?)st.Id : null,
+                    Barcode = st != null ? st.Barcode : null,
+                    QrCode = st != null ? st.QrCode : null,
+                    PublicCode = st != null ? st.PublicCode : null,
+                    Quantity = d.Quantity ?? 0,
+                    PurchasePrice = d.PurchasePrice,
+                    LineWeightGram = d.TotalWeightGram,
+                    LineAmount = (d.PurchasePrice ?? 0m) * (d.Quantity ?? 0)
+                };
 
-            var dto = new PurchaseDetailDto
+            var items = await itemsQuery.ToListAsync(ct);
+
+            var dto = header with
             {
-                Id = head.p.Id,
-                CreatedAt = head.p.CreatedAt,
-                BranchId = head.p.BranchId,
-                BranchName = head.BranchName,
-                UserId = head.p.UserId,
-                UserName = head.UserName,
-                CustomerId = head.p.CustomerId,
-                CustomerName = head.CustomerName,
-                PaymentMethodId = head.p.PaymentMethodId,
-                PaymentMethod = head.PaymentMethod,
-                ItemCount = lines.Count,
-                TotalAmount = lines.Sum(l => (l.PurchasePrice ?? 0) * l.Quantity),
-                Lines = lines
+                Items = items,
+                TotalAmount = items.Sum(l => l.LineAmount),
+                TotalWeightGram = items.Sum(l => l.LineWeightGram)
             };
 
             return ApiResult<PurchaseDetailDto>.Ok(dto, "Detay", 200);
