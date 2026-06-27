@@ -7,13 +7,20 @@ services:
     container_name: kuyum-api
     restart: unless-stopped
     ports:
-      - "5001:5000"
+      # Host:Container — bu uygulama 5000 kullanmıyor, hem içeride hem dışarıda 5001
+      - "5001:5001"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Production
+      # Swagger açık olsun diye Development. (DevSeed çalışmaz: ayrıca DEV_SEED_ENABLE gerekir)
+      - ASPNETCORE_ENVIRONMENT=Development
+      # Uygulamanın dinlediği iç port da 5001 — 5000'i tamamen kaldırdık
+      - ASPNETCORE_URLS=http://0.0.0.0:5001
       - TZ=Europe/Istanbul
       # Migration uygulama açılışında otomatik çalışır (MigrateAndSeedAsync).
       # Atlamak istersen: SKIP_DB_MIGRATE=true
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=kuyum_stok;Username=kuyum_user;Password=Kuyum2025!;Include Error Detail=true;TimeZone=UTC
+      # QR kod adresleri — sunucu IP'si (161.97.141.212)
+      - QrCode__BaseUrl=http://161.97.141.212:5001
+      - QrCode__FrontendBaseUrl=http://161.97.141.212:3001
     networks:
       - liventa-network
 
