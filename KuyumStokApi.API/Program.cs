@@ -219,10 +219,16 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
-
-// CORS (Authentication'dan önce olmalı)
+// CORS EN BAŞTA — preflight (OPTIONS) isteklerinin redirect/auth'a takılıp
+// CORS başlığı alamadan dönmesini engeller. (Policy tüm origin'lere açık.)
 app.UseCors();
+
+// HTTPS redirect Development'ta kapalı: http üzerinden gelen preflight'lar
+// 307 redirect yiyip CORS hatasına dönüşmesin. (Production'da HTTPS arkasında açık.)
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 // Static files (test HTML sayfası için)
 app.UseStaticFiles();
